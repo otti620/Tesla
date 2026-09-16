@@ -1,0 +1,134 @@
+{
+  "entities": {
+    "user": {
+      "title": "User Profile",
+      "description": "Registered Tesla user financial profile and activity logs",
+      "type": "object",
+      "properties": {
+        "phone": {
+          "type": "string",
+          "description": "User mobile phone number"
+        },
+        "balance": {
+          "type": "number",
+          "description": "Withdrawable wallet balance in NGN"
+        },
+        "cumulativeIncome": {
+          "type": "number",
+          "description": "Total accrued earnings from VIP products and commissions"
+        },
+        "inviteCode": {
+          "type": "string",
+          "description": "Alphanumeric referral code"
+        },
+        "fundPin": {
+          "type": "string",
+          "description": "6-digit withdrawal security PIN"
+        },
+        "lastCheckInDate": {
+          "type": "string",
+          "description": "YYYY-MM-DD string of last check in"
+        },
+        "bankAccount": {
+          "type": "object",
+          "description": "Bound Nigerian bank account information"
+        },
+        "teamMembers": {
+          "type": "array",
+          "description": "Downline team member list"
+        },
+        "purchasedProducts": {
+          "type": "array",
+          "description": "Active income generation generators"
+        },
+        "records": {
+          "type": "array",
+          "description": "Financial and ledger transaction entries"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Unix timestamp of last modification"
+        }
+      },
+      "required": ["phone", "balance"]
+    },
+    "appState": {
+      "title": "System App State",
+      "description": "Platform parameters, product models, and gift voucher codes",
+      "type": "object",
+      "properties": {
+        "products": {
+          "type": "array",
+          "description": "VIP Generator products available for purchase"
+        },
+        "giftCodes": {
+          "type": "array",
+          "description": "Redeemable voucher codes"
+        },
+        "platformSettings": {
+          "type": "object",
+          "description": "Platform rules, withdrawal window and commission tiers"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Unix timestamp of last update"
+        }
+      }
+    },
+    "withdrawal": {
+      "title": "Withdrawal Request",
+      "description": "User payout settlement request and banking destination",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique transaction record identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "User account UID"
+        },
+        "userPhone": {
+          "type": "string",
+          "description": "User registered phone number"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Gross withdrawal amount in NGN"
+        },
+        "fee": {
+          "type": "number",
+          "description": "Platform settlement handling fee"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "success", "failed"],
+          "description": "Settlement clearance status"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Submission Unix timestamp"
+        },
+        "bankAccount": {
+          "type": "object",
+          "description": "Target Nigerian bank destination account details"
+        }
+      },
+      "required": ["id", "userId", "userPhone", "amount", "status", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user",
+      "description": "User specific portfolio, balance, and records"
+    },
+    "/system/{docId}": {
+      "schema": "appState",
+      "description": "System-wide settings and products"
+    },
+    "/withdrawals/{withdrawalId}": {
+      "schema": "withdrawal",
+      "description": "Global user withdrawal settlement requests"
+    }
+  }
+}
