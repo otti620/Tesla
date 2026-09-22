@@ -81,6 +81,9 @@ export interface PlatformSettings {
   withdrawalTaxRate: number; // e.g. 0.18 for 18%
   minWithdrawal: number;
   telegramLink: string;
+  telegramGroupLink?: string;
+  customerServiceManagerLink?: string;
+  customerServiceUsername?: string;
   announcementNotice: string;
   level1CommissionPct: number;
   level2CommissionPct: number;
@@ -88,6 +91,9 @@ export interface PlatformSettings {
   withdrawalStartHour: number; // 9 for 9:00 AM
   withdrawalEndHour: number; // 17 for 5:00 PM
   allowAdminBypassHours?: boolean;
+  depositBankName?: string;
+  depositAccountNo?: string;
+  depositAccountName?: string;
 }
 
 export interface UserState {
@@ -106,9 +112,10 @@ export interface UserState {
   fundPin: string | null;
   loginPassword?: string;
   checkoutOrder?: CheckoutOrder | null;
+  claimedPromoterMilestones?: string[];
 }
 
-export type TabType = 'home' | 'product' | 'team' | 'mine';
+export type TabType = 'home' | 'product' | 'promoters' | 'team' | 'mine';
 export type SubScreen = 
   | null 
   | 'recharge' 
@@ -126,3 +133,18 @@ export type SubScreen =
   | 'admin'
   | 'login'
   | 'register';
+
+export interface NotificationBannerItem {
+  id: string;
+  type: 'revenue_ready' | 'system' | 'reward' | 'info';
+  title: string;
+  message: string;
+  amount?: number;
+  actionLabel?: string;
+  secondaryActionLabel?: string;
+  badgeText?: string;
+  timestamp: number;
+  persistent?: boolean;
+  priority?: number;
+}
+

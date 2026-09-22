@@ -102,7 +102,7 @@ export const InfoModals: React.FC<InfoModalProps> = ({ type, onBack }) => {
                   4. Referral Commissions &amp; Tiers
                 </h3>
                 <p>
-                  Level 1 direct referrals reward 35% cash bonus on initial investment. Level 2 and Level 3 team investments yield 1% ongoing commission bonuses credited directly to your balance.
+                  Level 1 direct referrals reward 25% cash bonus on initial investment. Level 2 and Level 3 team investments yield 1% ongoing commission bonuses credited directly to your balance.
                 </p>
               </div>
             </div>

@@ -18,6 +18,8 @@ import {
   onSnapshot 
 } from 'firebase/firestore';
 
+import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
+
 // Your web app's Firebase configuration
 export const firebaseConfig = {
   apiKey: "AIzaSyAQ0HiUMzTZdk-2QqirTWL8QG1uB9lEJkU",
@@ -49,12 +51,7 @@ export const db = getFirestore(app);
  * Example: "+234 7077599057" -> "user_7077599057@tesla-90.firebaseapp.com"
  */
 export function phoneToAuthEmail(phone: string): string {
-  let digits = phone.replace(/\D/g, '');
-  if (digits.startsWith('234')) {
-    digits = digits.slice(3);
-  } else if (digits.startsWith('0')) {
-    digits = digits.slice(1);
-  }
+  const digits = cleanNigerianPhoneDigits(phone);
   if (!digits || digits.length < 7) {
     throw new Error('Please enter a valid Nigerian phone number.');
   }

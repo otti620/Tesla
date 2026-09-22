@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   UserState, 
   TabType, 
@@ -8,7 +8,8 @@ import {
   TransactionRecord,
   CheckoutOrder,
   TeamMember,
-  PurchasedProductItem 
+  PurchasedProductItem,
+  NotificationBannerItem
 } from './types';
 import { AuthScreen } from './components/AuthScreen';
 import { HomeScreen } from './components/HomeScreen';
@@ -17,6 +18,7 @@ import { TeamScreen } from './components/TeamScreen';
 import { MineScreen } from './components/MineScreen';
 import { BottomNav } from './components/BottomNav';
 import { NotifyModal } from './components/NotifyModal';
+import { NotificationBannerQueue } from './components/NotificationBannerQueue';
 import { RechargeScreen } from './components/RechargeScreen';
 import { WithdrawScreen } from './components/WithdrawScreen';
 import { AddBankScreen } from './components/AddBankScreen';
@@ -30,9 +32,14 @@ import { TeamDetailsScreen } from './components/TeamDetailsScreen';
 import { SecurityScreen } from './components/SecurityScreen';
 import { AppDownloadScreen } from './components/AppDownloadScreen';
 import { AdminPanelScreen } from './components/AdminPanelScreen';
+import { PromotersScreen } from './components/PromotersScreen';
+import { FlyerModal } from './components/FlyerModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { INITIAL_PRODUCTS, INITIAL_GIFT_CODES, INITIAL_PLATFORM_SETTINGS } from './data/initialData';
 import { GiftCode, PlatformSettings } from './types';
+import { PromoterMilestone } from './data/promoterTiers';
 import { isAdminUser } from './utils/adminAuth';
+import { calculateProductMaturity } from './utils/nigerianTime';
 import { 
   auth, 
   db, 
@@ -41,7 +48,7 @@ import {
   logoutUser 
 } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { 
   loginAccount, 
   registerAccount, 
@@ -50,9 +57,18 @@ import {
   normalizePhone,
   getLocalAccounts,
   saveLocalAccounts,
-  generateUniqueInviteCode
+  generateUniqueInviteCode,
+  purgeAllMockDataAcrossPlatform,
+  findCloudUserByPhoneOrUid
 } from './lib/authService';
+import { cleanNigerianPhoneDigits } from './utils/adminAuth';
 import { extractReferralCodeFromUrl } from './utils/referral';
+import { normalizePurchasedProducts, normalizeProductCatalog, getCanonicalProduct, mergePurchasedProducts } from './utils/productUtils';
+import { 
+  distributeProductPurchaseCommissions, 
+  recordNewReferralRegistration 
+} from './lib/referralService';
+import { saveUserBankAccountInFirebase } from './lib/firestoreService';
 
 const STORAGE_KEY = 'tesla_app_state_v2';
 
@@ -68,15 +84,37 @@ const INITIAL_USER: UserState = {
   purchasedProducts: [],
   teamMembers: [],
   records: [],
+  claimedPromoterMilestones: [],
 };
 
 export default function App() {
   const [user, setUser] = useState<UserState>(() => {
     try {
+      purgeAllMockDataAcrossPlatform();
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.isLoggedIn) {
+          // Purge any lingering mock data from previous sessions
+          parsed.teamMembers = (parsed.teamMembers || []).filter(
+            (tm: any) =>
+              !tm.id?.startsWith('tm_adm_') &&
+              !tm.id?.startsWith('sim_') &&
+              tm.phone !== '+234 8031122334' &&
+              tm.phone !== '+234 8149988776'
+          );
+          parsed.purchasedProducts = normalizePurchasedProducts(
+            (parsed.purchasedProducts || []).filter((p: any) => !p.instanceId?.startsWith('prod_adm_'))
+          );
+          parsed.records = (parsed.records || []).filter(
+            (r: any) =>
+              !r.id?.startsWith('rec_adm_grant_') &&
+              !r.details?.includes('Pre-seeded') &&
+              r.title !== 'Master Admin System Grant'
+          );
+          if (parsed.bankAccount?.accountName === 'Tesla Energy Master Treasury') {
+            parsed.bankAccount = null;
+          }
           return parsed;
         }
       }
@@ -94,11 +132,7 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed.map((p: VIPProduct) =>
-            p.id === 'vip1' && p.price === 5000
-              ? { ...p, price: 4000, dailyIncome: 800, totalIncome: 80000 }
-              : p
-          );
+          return normalizeProductCatalog(parsed);
         }
       }
     } catch {
@@ -109,7 +143,15 @@ export default function App() {
   const [giftCodes, setGiftCodes] = useState<GiftCode[]>(() => {
     try {
       const saved = localStorage.getItem('tesla_gift_codes_state');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (gc: GiftCode) =>
+              gc.code !== 'TESLA2026' && gc.code !== 'TESLABONUS' && gc.code !== 'CYBERTRUCK'
+          );
+        }
+      }
     } catch {
       // ignore
     }
@@ -125,6 +167,9 @@ export default function App() {
           if (parsed.signupBonus === 2300 || parsed.signupBonus === 500) {
             parsed.signupBonus = 1500;
           }
+          if (parsed.minWithdrawal === 2000 || parsed.minWithdrawal === 2300 || !parsed.minWithdrawal) {
+            parsed.minWithdrawal = 800;
+          }
           return { ...INITIAL_PLATFORM_SETTINGS, ...parsed };
         }
       }
@@ -137,12 +182,75 @@ export default function App() {
   const [activeCheckoutOrder, setActiveCheckoutOrder] = useState<CheckoutOrder | null>(null);
   const [showNotifyModal, setShowNotifyModal] = useState<boolean>(true);
   const [showGiftModal, setShowGiftModal] = useState<boolean>(false);
+  const [showFlyerModal, setShowFlyerModal] = useState<boolean>(false);
   const [referralCodeFromUrl] = useState<string | null>(() => extractReferralCodeFromUrl());
   const [authMode, setAuthMode] = useState<'login' | 'register'>(() => {
     return extractReferralCodeFromUrl() ? 'register' : 'login';
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+
+  // Local state based notification queue
+  const [notificationQueue, setNotificationQueue] = useState<NotificationBannerItem[]>([]);
+  const isCollectingRevenueRef = useRef<boolean>(false);
+
+  // Local state based notification queue management for mature product revenue
+  useEffect(() => {
+    if (!user.isLoggedIn || !user.purchasedProducts || user.purchasedProducts.length === 0) {
+      setNotificationQueue((prev) => prev.filter((item) => item.id !== 'product_revenue_ready'));
+      return;
+    }
+
+    const checkRevenueMaturity = () => {
+      const now = Date.now();
+      let totalClaimable = 0;
+      let matureUnitsCount = 0;
+
+      for (const p of user.purchasedProducts) {
+        const maturity = calculateProductMaturity(p, now);
+        if (maturity.isMature && maturity.claimableYield > 0) {
+          totalClaimable += maturity.claimableYield;
+          matureUnitsCount += 1;
+        }
+      }
+
+      if (totalClaimable > 0) {
+        const revenueBanner: NotificationBannerItem = {
+          id: 'product_revenue_ready',
+          type: 'revenue_ready',
+          title: 'Daily Product Revenue Ready for Collection!',
+          message: `₦ ${totalClaimable.toLocaleString()} generated across ${matureUnitsCount} VIP unit${matureUnitsCount > 1 ? 's' : ''} is mature and ready to claim.`,
+          amount: totalClaimable,
+          actionLabel: `Claim +₦ ${totalClaimable.toLocaleString()}`,
+          secondaryActionLabel: 'View Store',
+          badgeText: '12:00 AM Settlement',
+          timestamp: Date.now(),
+          persistent: true,
+          priority: 10,
+        };
+
+        setNotificationQueue((prev) => {
+          const existingIdx = prev.findIndex((item) => item.id === 'product_revenue_ready');
+          if (existingIdx >= 0) {
+            const existing = prev[existingIdx];
+            if (existing.amount === totalClaimable && existing.message === revenueBanner.message) {
+              return prev;
+            }
+            const updated = [...prev];
+            updated[existingIdx] = revenueBanner;
+            return updated;
+          }
+          return [revenueBanner, ...prev];
+        });
+      } else {
+        setNotificationQueue((prev) => prev.filter((item) => item.id !== 'product_revenue_ready'));
+      }
+    };
+
+    checkRevenueMaturity();
+    const interval = setInterval(checkRevenueMaturity, 2000);
+    return () => clearInterval(interval);
+  }, [user.isLoggedIn, user.purchasedProducts]);
 
   // Notify when dynamic referral link is detected
   useEffect(() => {
@@ -206,16 +314,13 @@ export default function App() {
         if (snap.exists() && isMounted) {
           const data = snap.data();
           if (data.products) {
-            setProducts(data.products.map((p: VIPProduct) =>
-              p.id === 'vip1' && p.price === 5000
-                ? { ...p, price: 4000, dailyIncome: 800, totalIncome: 80000 }
-                : p
-            ));
+            setProducts(normalizeProductCatalog(data.products));
           }
           if (data.giftCodes) setGiftCodes(data.giftCodes);
           if (data.platformSettings) {
             const s = { ...data.platformSettings };
             if (s.signupBonus === 2300 || s.signupBonus === 500) s.signupBonus = 1500;
+            if (s.minWithdrawal === 2000 || s.minWithdrawal === 2300 || !s.minWithdrawal) s.minWithdrawal = 800;
             setPlatformSettings(s);
           }
         }
@@ -229,6 +334,62 @@ export default function App() {
     };
   }, []);
 
+  // Centralized robust persistence helper: synchronizes across active local session, accounts registry, and all Firestore doc aliases
+  const syncUserToFirestoreAndLocal = async (updatedUser: UserState) => {
+    const cleanDigits = cleanNigerianPhoneDigits(updatedUser.phone);
+    const now = Date.now();
+
+    // 1. Update localStorage active session
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+      localStorage.setItem('tesla_app_state_v2', JSON.stringify(updatedUser));
+    } catch {}
+
+    // 2. Update local accounts registry
+    try {
+      const accounts = getLocalAccounts();
+      const matchedKey = Object.keys(accounts).find(
+        (k) => k === cleanDigits || cleanNigerianPhoneDigits(accounts[k].phone) === cleanDigits
+      );
+      if (matchedKey && accounts[matchedKey]) {
+        accounts[matchedKey].userState = updatedUser;
+        accounts[matchedKey].updatedAt = now;
+        saveLocalAccounts(accounts);
+      }
+    } catch {}
+
+    // 3. Update all Firestore document aliases (UID doc, phone digits doc, direct user ID)
+    const docIdsToUpdate = new Set<string>();
+    if (auth.currentUser?.uid) docIdsToUpdate.add(auth.currentUser.uid);
+    if (cleanDigits) docIdsToUpdate.add(cleanDigits);
+    if (updatedUser.id) docIdsToUpdate.add(updatedUser.id);
+
+    for (const dId of docIdsToUpdate) {
+      try {
+        await setDoc(
+          doc(db, 'users', dId),
+          {
+            phone: updatedUser.phone,
+            balance: updatedUser.balance,
+            cumulativeIncome: updatedUser.cumulativeIncome,
+            bankAccount: updatedUser.bankAccount,
+            purchasedProducts: normalizePurchasedProducts(updatedUser.purchasedProducts),
+            records: updatedUser.records,
+            fundPin: updatedUser.fundPin,
+            inviteCode: updatedUser.inviteCode,
+            invitedBy: updatedUser.invitedBy,
+            lastCheckInDate: updatedUser.lastCheckInDate || null,
+            claimedPromoterMilestones: updatedUser.claimedPromoterMilestones || [],
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn(`Firestore sync notice for user doc ${dId}:`, err);
+      }
+    }
+  };
+
   // Firebase Auth State Listener - SYNC IN BACKGROUND WITHOUT LOCKING OUT
   useEffect(() => {
     let isMounted = true;
@@ -239,27 +400,53 @@ export default function App() {
         try {
           const userDocRef = doc(db, 'users', firebaseUser.uid);
           const snap = await getDoc(userDocRef);
-          if (snap.exists() && isMounted) {
-            const data = snap.data() as UserState;
-            setUser((prev) => ({
-              ...INITIAL_USER,
-              ...prev,
-              ...data,
-              isLoggedIn: true,
-            }));
-          } else if (isMounted) {
-            // User authenticated in Firebase but doc is pending or in local state
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (saved) {
-              try {
-                const parsed = JSON.parse(saved);
-                if (parsed && parsed.isLoggedIn) {
-                  await setDoc(userDocRef, { ...parsed, firebaseUid: firebaseUser.uid, updatedAt: Date.now() }, { merge: true });
+          let cloudData: UserState | null = snap.exists() ? (snap.data() as UserState) : null;
+
+          const digits = firebaseUser.email ? firebaseUser.email.replace(/^user_/, '').replace(/@.*$/, '') : '';
+          if (digits) {
+            try {
+              const digitsSnap = await getDoc(doc(db, 'users', digits));
+              if (digitsSnap.exists()) {
+                const dData = digitsSnap.data() as UserState;
+                if (!cloudData) {
+                  cloudData = dData;
+                } else {
+                  cloudData = {
+                    ...cloudData,
+                    ...dData,
+                    balance: (dData.balance || 0) > (cloudData.balance || 0) ? dData.balance : cloudData.balance,
+                    cumulativeIncome: (dData.cumulativeIncome || 0) > (cloudData.cumulativeIncome || 0) ? dData.cumulativeIncome : cloudData.cumulativeIncome,
+                    bankAccount: dData.bankAccount || cloudData.bankAccount || null,
+                    purchasedProducts: mergePurchasedProducts(cloudData.purchasedProducts, dData.purchasedProducts),
+                    records: (dData.records?.length || 0) > (cloudData.records?.length || 0) ? dData.records : cloudData.records,
+                  };
                 }
-              } catch {
-                // ignore
               }
-            }
+            } catch {}
+          }
+
+          if (isMounted) {
+            setUser((prev) => {
+              const merged: UserState = {
+                ...INITIAL_USER,
+                ...prev,
+                ...(cloudData || {}),
+                isLoggedIn: true,
+                balance: cloudData?.balance !== undefined ? cloudData.balance : prev.balance,
+                cumulativeIncome: cloudData?.cumulativeIncome !== undefined ? cloudData.cumulativeIncome : prev.cumulativeIncome,
+                bankAccount: cloudData?.bankAccount || prev.bankAccount || null,
+                fundPin: cloudData?.fundPin || prev.fundPin || '123456',
+                purchasedProducts: mergePurchasedProducts(
+                  prev.purchasedProducts,
+                  cloudData?.purchasedProducts
+                ),
+                claimedPromoterMilestones: cloudData?.claimedPromoterMilestones || prev.claimedPromoterMilestones || [],
+                records: (cloudData?.records && cloudData.records.length > 0)
+                  ? cloudData.records
+                  : prev.records,
+              };
+              return merged;
+            });
           }
         } catch (err) {
           console.warn('Firestore user restore notice (retaining local state):', err);
@@ -298,24 +485,106 @@ export default function App() {
     };
   }, []);
 
-  // Save changes to Firestore for authenticated user (debounced)
+  // Real-Time Active Firestore Sync for User Session (Receives Admin Product Allocations, Balance, PIN in Real-Time)
   useEffect(() => {
-    if (!user.isLoggedIn || !auth.currentUser) return;
+    if (!user.isLoggedIn) return;
 
-    const timer = setTimeout(async () => {
-      try {
-        const userDocRef = doc(db, 'users', auth.currentUser!.uid);
-        await setDoc(userDocRef, {
-          ...user,
-          updatedAt: Date.now(),
-        }, { merge: true });
-      } catch (err) {
-        console.warn('Firestore user save notice:', err);
+    const cleanDigits = cleanNigerianPhoneDigits(user.phone);
+    const targetDocId = auth.currentUser?.uid || cleanDigits;
+    if (!targetDocId) return;
+
+    const userDocRef = doc(db, 'users', targetDocId);
+    const unsubDoc = onSnapshot(
+      userDocRef,
+      (snap) => {
+        if (snap.exists()) {
+          const cloudData = snap.data() as Partial<UserState>;
+          setUser((prev) => {
+            const remoteProducts = cloudData.purchasedProducts;
+            const remoteRecords = cloudData.records;
+            const remoteBalance = cloudData.balance;
+            const remoteCumulative = cloudData.cumulativeIncome;
+            const remoteBank = cloudData.bankAccount;
+            const remotePin = cloudData.fundPin;
+            const remoteTeam = cloudData.teamMembers;
+
+            const productsChanged =
+              remoteProducts &&
+              (remoteProducts.length !== prev.purchasedProducts.length ||
+                JSON.stringify(remoteProducts) !== JSON.stringify(prev.purchasedProducts));
+
+            const balanceChanged = remoteBalance !== undefined && remoteBalance !== prev.balance;
+            const cumulativeChanged =
+              remoteCumulative !== undefined && remoteCumulative !== prev.cumulativeIncome;
+            const pinChanged = remotePin !== undefined && remotePin !== prev.fundPin;
+            const bankChanged =
+              remoteBank !== undefined &&
+              JSON.stringify(remoteBank) !== JSON.stringify(prev.bankAccount);
+            const teamChanged =
+              remoteTeam &&
+              (remoteTeam.length !== prev.teamMembers.length ||
+                JSON.stringify(remoteTeam) !== JSON.stringify(prev.teamMembers));
+            const recordsChanged =
+              remoteRecords &&
+              (remoteRecords.length !== prev.records.length ||
+                JSON.stringify(remoteRecords) !== JSON.stringify(prev.records));
+
+            if (productsChanged || balanceChanged || cumulativeChanged || pinChanged || bankChanged || teamChanged || recordsChanged) {
+              return {
+                ...prev,
+                ...cloudData,
+                balance: remoteBalance !== undefined ? remoteBalance : prev.balance,
+                cumulativeIncome: remoteCumulative !== undefined ? remoteCumulative : prev.cumulativeIncome,
+                bankAccount: remoteBank !== undefined && remoteBank !== null ? remoteBank : prev.bankAccount,
+                fundPin: remotePin || prev.fundPin,
+                teamMembers: remoteTeam && remoteTeam.length > 0 ? remoteTeam : prev.teamMembers,
+                purchasedProducts: mergePurchasedProducts(
+                  prev.purchasedProducts,
+                  remoteProducts
+                ),
+                claimedPromoterMilestones:
+                  cloudData.claimedPromoterMilestones || prev.claimedPromoterMilestones || [],
+                records: remoteRecords && remoteRecords.length > 0 ? remoteRecords : prev.records,
+                isLoggedIn: true,
+              };
+            }
+            return prev;
+          });
+        }
+      },
+      (err) => {
+        console.warn('Real-time user snapshot notice:', err);
       }
-    }, 1500);
+    );
 
-    return () => clearTimeout(timer);
-  }, [user]);
+    // Cross-tab / In-app event listener for real-time updates
+    const handleStateUpdated = (e: any) => {
+      if (e.detail) {
+        setUser((prev) => ({ ...prev, ...e.detail }));
+      }
+    };
+    const handleBalanceUpdated = (e: any) => {
+      if (e.detail?.balance !== undefined) {
+        setUser((prev) => ({ ...prev, balance: Number(e.detail.balance) }));
+      }
+    };
+    const handleProductAssigned = (e: any) => {
+      if (e.detail?.product) {
+        showToast(`⚡ New VIP Node Deployed: ${e.detail.product.vipLevel} is active in your store!`);
+      }
+    };
+
+    window.addEventListener('tesla_user_state_updated', handleStateUpdated);
+    window.addEventListener('tesla_user_balance_updated', handleBalanceUpdated);
+    window.addEventListener('tesla_product_assigned', handleProductAssigned);
+
+    return () => {
+      unsubDoc();
+      window.removeEventListener('tesla_user_state_updated', handleStateUpdated);
+      window.removeEventListener('tesla_user_balance_updated', handleBalanceUpdated);
+      window.removeEventListener('tesla_product_assigned', handleProductAssigned);
+    };
+  }, [user.isLoggedIn, user.phone, auth.currentUser?.uid]);
 
   // Save system state changes to Firestore (debounced)
   useEffect(() => {
@@ -360,6 +629,10 @@ export default function App() {
     try {
       const codeToUse = inviteCode || referralCodeFromUrl || 'P5ZP4S';
       const newUser = await registerAccount(phone, password, codeToUse, platformSettings);
+      // Link real user to upline's downline tree across local state and Firestore
+      recordNewReferralRegistration(newUser.phone, newUser.inviteCode, codeToUse).catch((e) =>
+        console.warn('Downline registration notice:', e)
+      );
       setUser(newUser);
       setSubScreen(null);
       setCurrentTab('home');
@@ -371,13 +644,17 @@ export default function App() {
     }
   };
 
-  const handleDirectAdminLogin = (digits: '7077599057' | '9011711470') => {
-    const adminUser = directAdminLogin(digits);
-    setUser(adminUser);
-    setSubScreen(null);
-    setCurrentTab('home');
-    setShowNotifyModal(true);
-    showToast(`Master Admin direct session activated (+234 ${digits})`);
+  const handleDirectAdminLogin = async (digits: '7077599057' | '9011711470') => {
+    try {
+      const adminUser = await directAdminLogin(digits);
+      setUser(adminUser);
+      setSubScreen(null);
+      setCurrentTab('home');
+      setShowNotifyModal(true);
+      showToast(`Master Admin direct session activated (+234 ${digits})`);
+    } catch (err: any) {
+      showToast(err?.message || 'Admin session activation failed');
+    }
   };
 
   const handleSignOut = async () => {
@@ -396,7 +673,7 @@ export default function App() {
       return;
     }
 
-    const checkInAmount = platformSettings.dailyCheckInBonus;
+    const checkInAmount = 10; // Strictly 10 Naira daily check-in bonus
     const rec: TransactionRecord = {
       id: `chk_${Date.now()}`,
       type: 'bonus',
@@ -404,15 +681,21 @@ export default function App() {
       amount: checkInAmount,
       status: 'success',
       timestamp: Date.now(),
-      details: 'Tesla Daily Attendance Verification Grant',
+      details: 'Tesla Daily Attendance Verification Grant (₦10)',
     };
 
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance + checkInAmount,
+    const newBalance = user.balance + checkInAmount;
+    const updatedRecords = [rec, ...user.records];
+
+    const updatedUserState: UserState = {
+      ...user,
+      balance: newBalance,
       lastCheckInDate: today,
-      records: [rec, ...prev.records],
-    }));
+      records: updatedRecords,
+    };
+
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
 
     showToast(`Checked in successfully! +₦${checkInAmount.toLocaleString()} credited to balance.`);
   };
@@ -503,13 +786,22 @@ export default function App() {
     if (isTargetUser) {
       setUser((prev) => {
         let found = false;
+        let wasAlreadyApproved = false;
         const updatedRecords = prev.records.map((r) => {
-          if (r.id === depositId) {
+          if (r.id === depositId || (r.type === 'recharge' && r.details?.includes(depositId))) {
             found = true;
+            if (r.status === 'success') {
+              wasAlreadyApproved = true;
+            }
             return { ...r, status: 'success' as const };
           }
           return r;
         });
+
+        if (wasAlreadyApproved) {
+          return prev;
+        }
+
         if (!found) {
           updatedRecords.unshift({
             id: depositId,
@@ -523,7 +815,6 @@ export default function App() {
         }
         return {
           ...prev,
-          balance: prev.balance + amount,
           records: updatedRecords,
         };
       });
@@ -554,15 +845,29 @@ export default function App() {
   };
 
   // Withdraw Handler
-  const handleSuccessWithdraw = (amount: number, fee: number) => {
+  const handleSuccessWithdraw = async (amount: number, fee: number) => {
+    const hasPurchasedProduct =
+      (user.purchasedProducts && user.purchasedProducts.length > 0) ||
+      user.records.some((r) => r.type === 'purchase');
+    const hasMadeDeposit = user.records.some((r) => r.type === 'recharge');
+
+    if (!hasPurchasedProduct || !hasMadeDeposit) {
+      showToast('You must purchase a VIP product and make a deposit before withdrawal.');
+      return;
+    }
+
+    const cleanDigits = cleanNigerianPhoneDigits(user.phone);
+    const targetDocId = auth.currentUser?.uid || cleanDigits;
+    const now = Date.now();
+
     const newRecord: TransactionRecord = {
-      id: `wth_${Date.now()}`,
+      id: `wth_${now}`,
       type: 'withdraw',
       title: 'Bank Withdrawal Request',
       amount,
       fee,
       status: 'pending',
-      timestamp: Date.now(),
+      timestamp: now,
       bankAccount: user.bankAccount || null,
       details: user.bankAccount
         ? `${user.bankAccount.bankName} - ${user.bankAccount.accountNumber} (${user.bankAccount.accountName})`
@@ -572,35 +877,43 @@ export default function App() {
     const updatedRecords = [newRecord, ...user.records];
     const newBalance = Math.max(0, user.balance - amount);
 
+    // 1. Immediately update React state
     setUser((prev) => ({
       ...prev,
       balance: newBalance,
       records: updatedRecords,
     }));
 
-    // Update local accounts registry
+    // 2. Immediately update localStorage active session
     try {
-      const cleanDigits = user.phone.replace(/\D/g, '').slice(-10);
+      const updatedUser: UserState = {
+        ...user,
+        balance: newBalance,
+        records: updatedRecords,
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+      localStorage.setItem('tesla_app_state_v2', JSON.stringify(updatedUser));
+    } catch {}
+
+    // 3. Immediately update local accounts registry
+    try {
       const accounts = getLocalAccounts();
-      if (accounts[cleanDigits]) {
+      if (cleanDigits && accounts[cleanDigits]) {
         accounts[cleanDigits].userState = {
           ...accounts[cleanDigits].userState,
           balance: newBalance,
           records: updatedRecords,
         };
+        accounts[cleanDigits].updatedAt = now;
         saveLocalAccounts(accounts);
       }
-    } catch {
-      // ignore
-    }
+    } catch {}
 
-    // Immediately persist withdrawal request to Firebase Firestore
-    if (auth.currentUser?.uid) {
-      const currentUid = auth.currentUser.uid;
-      // 1. Write to global withdrawals collection
-      setDoc(doc(db, 'withdrawals', newRecord.id), {
+    // 4. Immediately write to global withdrawals collection
+    try {
+      await setDoc(doc(db, 'withdrawals', newRecord.id), {
         id: newRecord.id,
-        userId: currentUid,
+        userId: targetDocId,
         userPhone: user.phone,
         amount,
         fee,
@@ -608,18 +921,46 @@ export default function App() {
         timestamp: newRecord.timestamp,
         bankAccount: user.bankAccount || null,
         details: newRecord.details,
-      }).catch((err) => console.warn('Global withdrawal write notice:', err));
-
-      // 2. Immediately update user document in Firestore
-      setDoc(doc(db, 'users', currentUid), {
-        ...user,
-        balance: newBalance,
-        records: updatedRecords,
-        updatedAt: Date.now(),
-      }, { merge: true }).catch((err) => console.warn('User withdrawal sync notice:', err));
+      });
+    } catch (err) {
+      console.warn('Global withdrawal write notice:', err);
     }
 
-    showToast(`Withdrawal request of ₦ ${amount.toLocaleString()} submitted!`);
+    // 5. Immediately update ALL user document references in Firestore with the deducted balance!
+    const docIdsToUpdate = new Set<string>();
+    if (targetDocId) docIdsToUpdate.add(targetDocId);
+    if (cleanDigits) docIdsToUpdate.add(cleanDigits);
+    if (auth.currentUser?.uid) docIdsToUpdate.add(auth.currentUser.uid);
+
+    for (const dId of docIdsToUpdate) {
+      try {
+        await setDoc(
+          doc(db, 'users', dId),
+          {
+            balance: newBalance,
+            records: updatedRecords,
+            updatedAt: now,
+          },
+          { merge: true }
+        );
+      } catch (err) {
+        console.warn(`User withdrawal sync notice for doc ${dId}:`, err);
+      }
+    }
+
+    // 6. Broadcast event so any open screens/tabs immediately register the deduction
+    window.dispatchEvent(
+      new CustomEvent('tesla_user_state_updated', {
+        detail: { balance: newBalance, records: updatedRecords },
+      })
+    );
+    window.dispatchEvent(
+      new CustomEvent('tesla_user_balance_updated', {
+        detail: { balance: newBalance },
+      })
+    );
+
+    showToast(`Withdrawal request of ₦ ${amount.toLocaleString()} submitted! ₦ ${amount.toLocaleString()} deducted.`);
   };
 
   // Product Purchase Handler
@@ -636,116 +977,228 @@ export default function App() {
       details: product.title,
     };
 
+    const now = Date.now();
+    const canonical = getCanonicalProduct(product.id) || getCanonicalProduct(product.vipLevel) || product;
     const newInstance: PurchasedProductItem = {
-      instanceId: `inst_${Date.now()}`,
-      productId: product.id,
-      title: product.title,
-      vipLevel: product.vipLevel,
-      purchaseDate: Date.now(),
-      dailyIncome: product.dailyIncome,
-      totalIncome: product.totalIncome,
-      validityDays: product.validityDays,
-      daysActive: 1,
-      image: product.image,
+      instanceId: `inst_${now}_${Math.random().toString(36).slice(2, 6)}`,
+      productId: canonical.id,
+      title: canonical.title,
+      vipLevel: canonical.vipLevel,
+      purchaseDate: now,
+      lastClaimDate: now,
+      dailyIncome: canonical.dailyIncome,
+      totalIncome: canonical.totalIncome,
+      validityDays: canonical.validityDays,
+      daysActive: 0,
+      image: canonical.image,
     };
 
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance - product.price,
-      purchasedProducts: [...prev.purchasedProducts, newInstance],
-      records: [purchaseRecord, ...prev.records],
-    }));
+    const newBalance = user.balance - canonical.price;
+    const newPurchased = normalizePurchasedProducts([...user.purchasedProducts, newInstance]);
+    const newRecords = [purchaseRecord, ...user.records];
 
-    showToast(`${product.vipLevel} activated successfully!`);
+    const updatedUserState: UserState = {
+      ...user,
+      balance: newBalance,
+      purchasedProducts: newPurchased,
+      records: newRecords,
+    };
+
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
+
+    // Distribute real multi-tier team commissions (Level 1: 25%, Level 2: 1%, Level 3: 1%)
+    distributeProductPurchaseCommissions({
+      buyerPhone: user.phone,
+      buyerInviteCode: user.inviteCode,
+      buyerInvitedBy: user.invitedBy,
+      amount: product.price,
+      productTitle: product.title,
+      platformSettings,
+      orderOrInstanceId: newInstance.instanceId,
+    })
+      .then((results) => {
+        if (results && results.length > 0) {
+          console.log('[CommissionEngine] Credited uplines successfully:', results);
+        }
+      })
+      .catch((err) => console.warn('Commission distribution notice:', err));
+
+    showToast(`${product.vipLevel} activated successfully! Daily revenue drops every midnight (12:00 AM WAT).`);
     return true;
   };
 
-  // Collect Revenue Handler
-  const handleCollectRevenue = () => {
-    const totalDaily = user.purchasedProducts.reduce(
-      (sum, p) => sum + p.dailyIncome,
-      0
-    );
+  // Collect Revenue Handler - DAILY 12:00 MIDNIGHT WAT SETTLEMENT
+  const handleCollectRevenue = (instanceId?: string) => {
+    if (isCollectingRevenueRef.current) return;
+    isCollectingRevenueRef.current = true;
 
-    if (totalDaily === 0) {
-      showToast('No active power generators yet! Purchase a VIP Node first.');
-      return;
+    try {
+      if (user.purchasedProducts.length === 0) {
+        showToast('No active power generators yet! Purchase a VIP Node first.');
+        return;
+      }
+
+      const now = Date.now();
+      let totalClaimable = 0;
+      let claimedUnitsCount = 0;
+
+      const updatedPurchased = user.purchasedProducts.map((p) => {
+        // If a specific instance was requested to collect, ignore others
+        if (instanceId && p.instanceId !== instanceId) {
+          return p;
+        }
+
+        const maturity = calculateProductMaturity(p, now);
+
+        if (maturity.isMature && maturity.claimableYield > 0) {
+          totalClaimable += maturity.claimableYield;
+          claimedUnitsCount += 1;
+          return {
+            ...p,
+            daysActive: Math.min(p.validityDays || 100, (p.daysActive || 0) + 1),
+            lastClaimDate: now,
+          };
+        }
+
+        return p;
+      });
+
+      if (totalClaimable <= 0) {
+        showToast('No mature daily revenue ready to claim yet. Next income drops after 12:00 AM midnight (WAT)!');
+        return;
+      }
+
+      const incomeRecord: TransactionRecord = {
+        id: `inc_${Date.now()}`,
+        type: 'income',
+        title: 'Daily Energy Generation Income',
+        amount: totalClaimable,
+        status: 'success',
+        timestamp: Date.now(),
+        details: `Daily 12:00 AM Midnight Generation Yield Claimed (${claimedUnitsCount} Unit${claimedUnitsCount > 1 ? 's' : ''})`,
+      };
+
+      const newBalance = user.balance + totalClaimable;
+      const newCumulative = user.cumulativeIncome + totalClaimable;
+      const newRecords = [incomeRecord, ...user.records];
+
+      const updatedUserState: UserState = {
+        ...user,
+        balance: newBalance,
+        cumulativeIncome: newCumulative,
+        purchasedProducts: updatedPurchased,
+        records: newRecords,
+      };
+
+      setUser(updatedUserState);
+      syncUserToFirestoreAndLocal(updatedUserState);
+
+      showToast(`Collected +₦ ${totalClaimable.toLocaleString()} daily yield!`);
+    } finally {
+      setTimeout(() => {
+        isCollectingRevenueRef.current = false;
+      }, 500);
+    }
+  };
+
+  // Notification Queue Handlers
+  const handleNotificationBannerAction = (item: NotificationBannerItem) => {
+    if (item.type === 'revenue_ready') {
+      handleCollectRevenue();
+      setNotificationQueue((prev) => prev.filter((i) => i.id !== item.id));
+    }
+  };
+
+  const handleNotificationBannerSecondaryAction = (item: NotificationBannerItem) => {
+    if (item.type === 'revenue_ready') {
+      setSubScreen('my_store');
+    }
+  };
+
+  const handleDismissNotification = (id: string) => {
+    setNotificationQueue((prev) => prev.filter((i) => i.id !== id));
+  };
+
+  // Claim Promoter Milestone Bounty Handler
+  const handleClaimPromoterMilestone = async (milestone: PromoterMilestone): Promise<boolean> => {
+    const claimedSet = new Set(user.claimedPromoterMilestones || []);
+    if (claimedSet.has(milestone.id)) {
+      showToast('This promoter milestone has already been claimed!');
+      return false;
     }
 
-    const incomeRecord: TransactionRecord = {
-      id: `inc_${Date.now()}`,
-      type: 'income',
-      title: 'Daily Energy Generation Income',
-      amount: totalDaily,
+    const lv1Buyers = user.teamMembers.filter((m) => m.level === 1 && (m.invested || 0) > 0).length;
+    if (lv1Buyers < milestone.requiredActiveInvites) {
+      showToast(
+        `You need ${milestone.requiredActiveInvites - lv1Buyers} more direct active VIP buyer(s) to claim this bounty!`
+      );
+      return false;
+    }
+
+    const bountyRecord: TransactionRecord = {
+      id: `prom_bounty_${Date.now()}`,
+      type: 'bonus',
+      title: `Promoter Bounty: ${milestone.title}`,
+      amount: milestone.bonusAmount,
       status: 'success',
       timestamp: Date.now(),
-      details: `${user.purchasedProducts.length} Active VIP Node(s)`,
+      details: `${milestone.badge} unlocked for inviting ${milestone.requiredActiveInvites} active VIP buyers`,
     };
 
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance + totalDaily,
-      cumulativeIncome: prev.cumulativeIncome + totalDaily,
-      purchasedProducts: prev.purchasedProducts.map((p) => ({
-        ...p,
-        daysActive: p.daysActive + 1,
-      })),
-      records: [incomeRecord, ...prev.records],
-    }));
+    const newBalance = user.balance + milestone.bonusAmount;
+    const newCumulative = user.cumulativeIncome + milestone.bonusAmount;
+    const updatedClaimed = [...(user.claimedPromoterMilestones || []), milestone.id];
+    const newRecords = [bountyRecord, ...user.records];
 
-    showToast(`Collected +₦ ${totalDaily.toLocaleString()} daily yield!`);
+    const updatedUserState: UserState = {
+      ...user,
+      balance: newBalance,
+      cumulativeIncome: newCumulative,
+      claimedPromoterMilestones: updatedClaimed,
+      records: newRecords,
+    };
+
+    setUser(updatedUserState);
+    await syncUserToFirestoreAndLocal(updatedUserState);
+
+    showToast(`🎉 Congratulations! +₦${milestone.bonusAmount.toLocaleString()} Milestone Bounty credited to your balance!`);
+    return true;
   };
 
   // Bank Account Save Handler
-  const handleSaveBank = (bank: BankAccount) => {
-    setUser((prev) => ({ ...prev, bankAccount: bank }));
+  const handleSaveBank = async (bank: BankAccount) => {
+    const updatedUserState: UserState = {
+      ...user,
+      bankAccount: bank,
+    };
+
+    // 1. Update React User State
+    setUser(updatedUserState);
+
+    // 2. Persist to local & Firestore docs
+    await syncUserToFirestoreAndLocal(updatedUserState);
+
+    // 3. Broadcast real-time update event
+    try {
+      window.dispatchEvent(
+        new CustomEvent('tesla_user_state_updated', {
+          detail: { phone: user.phone, bankAccount: bank },
+        })
+      );
+    } catch {}
+
     showToast(`Bank account bound: ${bank.bankName}`);
   };
 
   // Security Updates
-  const handleUpdatePassword = (_oldPass: string, _newPass: string) => {
+  const handleUpdatePassword = (_newPass: string) => {
     showToast('Login password updated successfully!');
   };
 
   const handleUpdateFundPin = (newPin: string) => {
     setUser((prev) => ({ ...prev, fundPin: newPin }));
     showToast('Withdrawal Fund PIN updated successfully!');
-  };
-
-  // Referral Simulator Handler
-  const handleSimulateReferral = (level: 1 | 2 | 3, amount: number) => {
-    const rate = level === 1 ? 0.35 : 0.01;
-    const commission = amount * rate;
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const newMember: TeamMember = {
-      id: `tm_${Date.now()}`,
-      phone: `+234 803***${randomSuffix}`,
-      inviteCode: `TSL${randomSuffix}`,
-      level,
-      joinDate: 'Just now',
-      invested: amount,
-      commission,
-      status: 'active',
-    };
-
-    const commRecord: TransactionRecord = {
-      id: `comm_${Date.now()}`,
-      type: 'commission',
-      title: `Level ${level} Referral Commission`,
-      amount: commission,
-      status: 'success',
-      timestamp: Date.now(),
-      details: `${(rate * 100).toFixed(0)}% bonus from ${newMember.phone}'s ₦${amount.toLocaleString()} investment`,
-    };
-
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance + commission,
-      teamMembers: [newMember, ...prev.teamMembers],
-      records: [commRecord, ...prev.records],
-    }));
-
-    showToast(`Referral simulated! +₦${commission.toLocaleString()} bonus added to balance.`);
   };
 
   // Gift Code Redeem Handler
@@ -763,6 +1216,14 @@ export default function App() {
 
     if (targetCode.usedCount >= targetCode.maxUses) {
       return { success: false, message: 'This gift code has reached its maximum redemption quota.' };
+    }
+
+    // Prevent duplicate redemption by the same user
+    const alreadyRedeemed = user.records.some(
+      (r) => r.type === 'gift' && (r.title.includes(trimmed) || r.details?.includes(trimmed))
+    );
+    if (alreadyRedeemed) {
+      return { success: false, message: `You have already claimed gift code "${trimmed}".` };
     }
 
     const amount = targetCode.amount;
@@ -783,11 +1244,17 @@ export default function App() {
       )
     );
 
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance + amount,
-      records: [rec, ...prev.records],
-    }));
+    const newBalance = user.balance + amount;
+    const updatedRecords = [rec, ...user.records];
+
+    const updatedUserState: UserState = {
+      ...user,
+      balance: newBalance,
+      records: updatedRecords,
+    };
+
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
 
     return { 
       success: true, 
@@ -796,10 +1263,19 @@ export default function App() {
     };
   };
 
-  // Telegram simulation
-  const handleOpenTelegram = (channel = 'Tesla Official Telegram') => {
+  // Telegram navigation
+  const handleOpenTelegram = (channel = 'Tesla Official Telegram', customUrl?: string) => {
+    const targetUrl =
+      customUrl ||
+      platformSettings.telegramGroupLink ||
+      platformSettings.telegramLink ||
+      'https://t.me/teslainvestment456';
     showToast(`Opening ${channel}...`);
-    window.open('https://t.me/tesla', '_blank', 'noopener,noreferrer');
+    try {
+      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    } catch {
+      window.location.href = targetUrl;
+    }
   };
 
   // Master Admin Handlers
@@ -934,42 +1410,46 @@ export default function App() {
     setUser((prev) => ({ ...prev, fundPin: newPin }));
   };
 
-  const handleAdminAddSimulatedMember = (phone: string, level: 1 | 2 | 3, invested: number) => {
-    const rate = level === 1 
-      ? platformSettings.level1CommissionPct / 100 
-      : level === 2 
-      ? platformSettings.level2CommissionPct / 100 
-      : platformSettings.level3CommissionPct / 100;
-    
-    const commission = invested * rate;
-    const cleanDigits = phone.replace(/\D/g, '').slice(-4) || Math.floor(1000 + Math.random() * 9000).toString();
-    const newMember: TeamMember = {
-      id: `tm_adm_${Date.now()}`,
-      phone,
-      inviteCode: `TSL${cleanDigits}`,
-      level,
-      joinDate: 'Just now (Admin injected)',
-      invested,
-      commission,
-      status: 'active',
-    };
-
-    const commRecord: TransactionRecord = {
-      id: `comm_${Date.now()}`,
-      type: 'commission',
-      title: `Level ${level} Referral Commission`,
-      amount: commission,
-      status: 'success',
-      timestamp: Date.now(),
-      details: `${(rate * 100).toFixed(0)}% commission from ${phone}'s ₦${invested.toLocaleString()} deposit`,
-    };
-
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance + commission,
-      teamMembers: [newMember, ...prev.teamMembers],
-      records: [commRecord, ...prev.records],
-    }));
+  const handleAdminAssignProduct = (product: VIPProduct, targetPhone?: string) => {
+    const cleanTarget = cleanNigerianPhoneDigits(targetPhone || '');
+    const cleanUser = cleanNigerianPhoneDigits(user.phone);
+    if (!targetPhone || cleanTarget === cleanUser) {
+      if (user.purchasedProducts.some((p) => p.productId === product.id && Date.now() - (p.purchaseDate || 0) < 5000)) {
+        return;
+      }
+      const now = Date.now();
+      const canonical = getCanonicalProduct(product.id) || getCanonicalProduct(product.vipLevel) || product;
+      const newInstance: PurchasedProductItem = {
+        instanceId: `inst_${now}_${Math.random().toString(36).slice(2, 6)}`,
+        productId: canonical.id,
+        title: canonical.title,
+        vipLevel: canonical.vipLevel,
+        purchaseDate: now,
+        lastClaimDate: now,
+        dailyIncome: canonical.dailyIncome,
+        totalIncome: canonical.totalIncome,
+        validityDays: canonical.validityDays,
+        daysActive: 0,
+        image: canonical.image,
+      };
+      const grantRec: TransactionRecord = {
+        id: `adm_prod_${now}`,
+        type: 'purchase',
+        title: `Admin VIP Grant: ${canonical.vipLevel}`,
+        amount: canonical.price,
+        status: 'success',
+        timestamp: now,
+        details: `Executive Direct Allocation: ${canonical.title} (Daily: ₦${canonical.dailyIncome.toLocaleString()})`,
+      };
+      const updatedUserState: UserState = {
+        ...user,
+        purchasedProducts: normalizePurchasedProducts([...user.purchasedProducts, newInstance]),
+        records: [grantRec, ...user.records],
+      };
+      setUser(updatedUserState);
+      syncUserToFirestoreAndLocal(updatedUserState);
+      showToast(`Admin: Deployed ${product.vipLevel} to wallet in Real-Time!`);
+    }
   };
 
   // If verifying initial auth session and no cached local session
@@ -1005,6 +1485,7 @@ export default function App() {
       return (
         <RechargeScreen
           user={user}
+          platformSettings={platformSettings}
           onBack={() => setSubScreen(null)}
           onGoToRecords={() => setSubScreen('records')}
           onProceedToCheckout={handleProceedToCheckout}
@@ -1016,9 +1497,9 @@ export default function App() {
         orderNo: `TSL${Date.now().toString().slice(-8)}`,
         amount: 5000,
         channel: 'Recharge Channel 3',
-        bankName: 'Wema Bank (ALAT)',
-        accountNo: '0123984712',
-        accountName: 'Tesla Clean Energy Limited',
+        bankName: platformSettings.depositBankName || 'CARBON',
+        accountNo: platformSettings.depositAccountNo || '1581957640',
+        accountName: platformSettings.depositAccountName || 'LEVIATHAN HYPERMARKET',
         createdAt: Date.now(),
         expiresAt: Date.now() + 15 * 60 * 1000,
       };
@@ -1039,6 +1520,11 @@ export default function App() {
           onBack={() => setSubScreen(null)}
           onGoToRecords={() => setSubScreen('records')}
           onGoToAddBank={() => setSubScreen('add_bank')}
+          onGoToProducts={() => {
+            setSubScreen(null);
+            setCurrentTab('product');
+          }}
+          onGoToRecharge={() => setSubScreen('recharge')}
           onSuccessWithdraw={handleSuccessWithdraw}
           taxRate={platformSettings.withdrawalTaxRate}
           minWithdrawal={platformSettings.minWithdrawal}
@@ -1062,6 +1548,7 @@ export default function App() {
         <CustomerServiceScreen
           onBack={() => setSubScreen(null)}
           onOpenTelegram={handleOpenTelegram}
+          platformSettings={platformSettings}
         />
       );
     }
@@ -1106,8 +1593,8 @@ export default function App() {
       return (
         <TeamDetailsScreen
           user={user}
+          platformSettings={platformSettings}
           onBack={() => setSubScreen(null)}
-          onSimulateReferral={handleSimulateReferral}
         />
       );
     }
@@ -1133,26 +1620,28 @@ export default function App() {
         return null;
       }
       return (
-        <AdminPanelScreen
-          user={user}
-          products={products}
-          giftCodes={giftCodes}
-          platformSettings={platformSettings}
-          onBack={() => setSubScreen(null)}
-          onUpdateUserBalance={handleAdminUpdateBalance}
-          onApproveWithdrawal={handleAdminApproveWithdrawal}
-          onRejectWithdrawal={handleAdminRejectWithdrawal}
-          onApproveDeposit={handleAdminApproveDeposit}
-          onRejectDeposit={handleAdminRejectDeposit}
-          onToggleProductStatus={handleAdminToggleProductStatus}
-          onAddManualBonus={handleAdminAddManualBonus}
-          onCreateGiftCode={handleAdminCreateGiftCode}
-          onDeleteGiftCode={handleAdminDeleteGiftCode}
-          onToggleGiftCode={handleAdminToggleGiftCode}
-          onUpdatePlatformSettings={handleAdminUpdatePlatformSettings}
-          onResetUserFundPin={handleAdminResetFundPin}
-          onAddSimulatedTeamMember={handleAdminAddSimulatedMember}
-        />
+        <ErrorBoundary fallbackTitle="Admin Panel Safe Mode" onReset={() => setSubScreen(null)}>
+          <AdminPanelScreen
+            user={user}
+            products={products}
+            giftCodes={giftCodes}
+            platformSettings={platformSettings}
+            onBack={() => setSubScreen(null)}
+            onUpdateUserBalance={handleAdminUpdateBalance}
+            onApproveWithdrawal={handleAdminApproveWithdrawal}
+            onRejectWithdrawal={handleAdminRejectWithdrawal}
+            onApproveDeposit={handleAdminApproveDeposit}
+            onRejectDeposit={handleAdminRejectDeposit}
+            onToggleProductStatus={handleAdminToggleProductStatus}
+            onAddManualBonus={handleAdminAddManualBonus}
+            onCreateGiftCode={handleAdminCreateGiftCode}
+            onDeleteGiftCode={handleAdminDeleteGiftCode}
+            onToggleGiftCode={handleAdminToggleGiftCode}
+            onUpdatePlatformSettings={handleAdminUpdatePlatformSettings}
+            onResetUserFundPin={handleAdminResetFundPin}
+            onAdminAssignProduct={handleAdminAssignProduct}
+          />
+        </ErrorBoundary>
       );
     }
     return null;
@@ -1171,26 +1660,28 @@ export default function App() {
             {toastMessage}
           </div>
         )}
-        <AdminPanelScreen
-          user={user}
-          products={products}
-          giftCodes={giftCodes}
-          platformSettings={platformSettings}
-          onBack={() => setSubScreen(null)}
-          onUpdateUserBalance={handleAdminUpdateBalance}
-          onApproveWithdrawal={handleAdminApproveWithdrawal}
-          onRejectWithdrawal={handleAdminRejectWithdrawal}
-          onApproveDeposit={handleAdminApproveDeposit}
-          onRejectDeposit={handleAdminRejectDeposit}
-          onToggleProductStatus={handleAdminToggleProductStatus}
-          onAddManualBonus={handleAdminAddManualBonus}
-          onCreateGiftCode={handleAdminCreateGiftCode}
-          onDeleteGiftCode={handleAdminDeleteGiftCode}
-          onToggleGiftCode={handleAdminToggleGiftCode}
-          onUpdatePlatformSettings={handleAdminUpdatePlatformSettings}
-          onResetUserFundPin={handleAdminResetFundPin}
-          onAddSimulatedTeamMember={handleAdminAddSimulatedMember}
-        />
+        <ErrorBoundary fallbackTitle="Admin Panel Safe Mode" onReset={() => setSubScreen(null)}>
+          <AdminPanelScreen
+            user={user}
+            products={products}
+            giftCodes={giftCodes}
+            platformSettings={platformSettings}
+            onBack={() => setSubScreen(null)}
+            onUpdateUserBalance={handleAdminUpdateBalance}
+            onApproveWithdrawal={handleAdminApproveWithdrawal}
+            onRejectWithdrawal={handleAdminRejectWithdrawal}
+            onApproveDeposit={handleAdminApproveDeposit}
+            onRejectDeposit={handleAdminRejectDeposit}
+            onToggleProductStatus={handleAdminToggleProductStatus}
+            onAddManualBonus={handleAdminAddManualBonus}
+            onCreateGiftCode={handleAdminCreateGiftCode}
+            onDeleteGiftCode={handleAdminDeleteGiftCode}
+            onToggleGiftCode={handleAdminToggleGiftCode}
+            onUpdatePlatformSettings={handleAdminUpdatePlatformSettings}
+            onResetUserFundPin={handleAdminResetFundPin}
+            onAdminAssignProduct={handleAdminAssignProduct}
+          />
+        </ErrorBoundary>
       </div>
     );
   }
@@ -1206,6 +1697,16 @@ export default function App() {
           </div>
         )}
 
+        {/* Persistent Notification Banner Queue (Revenue Ready & System Alerts) */}
+        {user.isLoggedIn && notificationQueue.length > 0 && (
+          <NotificationBannerQueue
+            queue={notificationQueue}
+            onAction={handleNotificationBannerAction}
+            onSecondaryAction={handleNotificationBannerSecondaryAction}
+            onDismiss={handleDismissNotification}
+          />
+        )}
+
         {/* If a sub-screen is active, render it */}
         {subScreen ? (
           renderSubScreen()
@@ -1217,6 +1718,7 @@ export default function App() {
                 onNavigate={(screen) => setSubScreen(screen)}
                 onOpenGifts={() => setShowGiftModal(true)}
                 onGoToProducts={() => setCurrentTab('product')}
+                onGoToPromoters={() => setCurrentTab('promoters')}
                 onOpenNotify={() => setShowNotifyModal(true)}
                 onDailyCheckIn={handleDailyCheckIn}
               />
@@ -1233,10 +1735,23 @@ export default function App() {
               />
             )}
 
+            {currentTab === 'promoters' && (
+              <PromotersScreen
+                user={user}
+                platformSettings={platformSettings}
+                onClaimMilestone={handleClaimPromoterMilestone}
+                onNavigateToRecharge={() => setSubScreen('recharge')}
+                onGoToProducts={() => setCurrentTab('product')}
+                onOpenFlyerModal={() => setShowFlyerModal(true)}
+              />
+            )}
+
             {currentTab === 'team' && (
               <TeamScreen
                 user={user}
+                platformSettings={platformSettings}
                 onNavigateToTeamDetails={() => setSubScreen('team_details')}
+                onOpenFlyerModal={() => setShowFlyerModal(true)}
               />
             )}
 
@@ -1247,6 +1762,8 @@ export default function App() {
                 onOpenGifts={() => setShowGiftModal(true)}
                 onSignOut={handleSignOut}
                 onGoToProducts={() => setCurrentTab('product')}
+                onGoToPromoters={() => setCurrentTab('promoters')}
+                onOpenFlyerModal={() => setShowFlyerModal(true)}
               />
             )}
 
@@ -1261,14 +1778,50 @@ export default function App() {
           </main>
         )}
 
-        {/* NOTIFY Modal (matching screenshot 3) */}
+        {/* Floating Customer Service Image Widget on Major Pages (Home, Product, Promoters, Team, Mine) */}
+        {user.isLoggedIn && !subScreen && (
+          <button
+            onClick={() => setSubScreen('customer_service')}
+            className="fixed bottom-20 right-3.5 z-40 flex items-center gap-2 p-1.5 pl-2 pr-3 bg-white/95 backdrop-blur-md rounded-full shadow-xl border border-neutral-200/90 hover:scale-105 active:scale-95 transition-all duration-200 group cursor-pointer animate-in fade-in slide-in-from-bottom-3"
+            aria-label="24/7 Customer Service"
+          >
+            <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-emerald-500 shadow-xs shrink-0">
+              <img
+                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&auto=format&fit=crop&q=80"
+                alt="Customer Service Manager"
+                className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                referrerPolicy="no-referrer"
+              />
+              <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full animate-pulse" />
+            </div>
+            <div className="flex flex-col text-left">
+              <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1 leading-none">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                24/7 Care
+              </span>
+              <span className="text-xs font-black text-neutral-900 leading-tight">
+                Support
+              </span>
+            </div>
+          </button>
+        )}
+
+        {/* NOTIFY Modal with Prominent Join Telegram Group Button */}
         <NotifyModal
           isOpen={showNotifyModal && !subScreen && currentTab === 'home'}
           onClose={() => setShowNotifyModal(false)}
-          onOpenTelegram={() => handleOpenTelegram(platformSettings.telegramLink || 'Tesla Official Telegram Channel')}
+          onOpenTelegram={() =>
+            handleOpenTelegram(
+              'Tesla Official Telegram Group',
+              platformSettings.telegramGroupLink || platformSettings.telegramLink || 'https://t.me/teslainvestment456'
+            )
+          }
           announcementNotice={platformSettings.announcementNotice}
           signupBonus={platformSettings.signupBonus}
           level1CommissionPct={platformSettings.level1CommissionPct}
+          telegramGroupLink={
+            platformSettings.telegramGroupLink || platformSettings.telegramLink || 'https://t.me/teslainvestment456'
+          }
         />
 
         {/* Redeem Gift Modal */}
@@ -1276,6 +1829,14 @@ export default function App() {
           isOpen={showGiftModal}
           onClose={() => setShowGiftModal(false)}
           onRedeem={handleRedeemGift}
+        />
+
+        {/* Dynamic Advertising Flyer Studio Modal */}
+        <FlyerModal
+          isOpen={showFlyerModal}
+          onClose={() => setShowFlyerModal(false)}
+          user={user}
+          platformSettings={platformSettings}
         />
       </div>
     </div>

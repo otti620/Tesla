@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { ChevronLeft, FileClock, AlertCircle } from 'lucide-react';
-import { UserState, CheckoutOrder } from '../types';
+import { UserState, CheckoutOrder, PlatformSettings } from '../types';
 import { TeslaLogo } from './TeslaLogo';
 
 interface RechargeScreenProps {
   user: UserState;
+  platformSettings?: PlatformSettings;
   onBack: () => void;
   onGoToRecords: () => void;
   onProceedToCheckout: (order: CheckoutOrder) => void;
@@ -12,6 +13,7 @@ interface RechargeScreenProps {
 
 export const RechargeScreen: React.FC<RechargeScreenProps> = ({
   user,
+  platformSettings,
   onBack,
   onGoToRecords,
   onProceedToCheckout,
@@ -48,13 +50,17 @@ export const RechargeScreen: React.FC<RechargeScreenProps> = ({
       return;
     }
 
+    const depositBankName = platformSettings?.depositBankName || 'CARBON';
+    const depositAccountNo = platformSettings?.depositAccountNo || '1581957640';
+    const depositAccountName = platformSettings?.depositAccountName || 'LEVIATHAN HYPERMARKET';
+
     const order: CheckoutOrder = {
       orderNo: `TSL${Date.now().toString().slice(-8)}`,
       amount,
       channel: selectedChannel === 'channel_3' ? 'Recharge Channel 3' : 'Recharge Channel 2',
-      bankName: selectedChannel === 'channel_3' ? 'Wema Bank (ALAT)' : 'Moniepoint MFB',
-      accountNo: selectedChannel === 'channel_3' ? '0123984712' : '8139201948',
-      accountName: 'Tesla Clean Energy Limited',
+      bankName: depositBankName,
+      accountNo: depositAccountNo,
+      accountName: depositAccountName,
       createdAt: Date.now(),
       expiresAt: Date.now() + 15 * 60 * 1000,
     };

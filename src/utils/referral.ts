@@ -84,7 +84,7 @@ export function extractReferralCodeFromUrl(): string | null {
  */
 export function getReferralShareMessage(inviteCode: string, referralUrl?: string): string {
   const url = referralUrl || getDynamicReferralLink(inviteCode);
-  return `⚡ Join Tesla Clean Energy VIP Investment! Get an instant ₦1,500 Welcome Bonus + earn up to 35% daily affiliate cash on clean energy VIP fleet units.\n\nUse my VIP Invitation Code: ${inviteCode}\n\nRegister dynamically here: ${url}`;
+  return `⚡ Join Tesla Clean Energy VIP Investment! Get an instant ₦1,500 Welcome Bonus + earn up to 25% daily affiliate cash on clean energy VIP fleet units.\n\nUse my VIP Invitation Code: ${inviteCode}\n\nRegister dynamically here: ${url}`;
 }
 
 /**

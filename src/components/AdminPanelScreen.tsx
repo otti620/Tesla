@@ -9,6 +9,7 @@ import {
   Wallet, 
   Car, 
   PlusCircle, 
+  MinusCircle,
   RefreshCw,
   Search,
   DollarSign,
@@ -33,16 +34,21 @@ import {
   CreditCard,
   RotateCcw,
   Banknote,
-  Landmark
+  Landmark,
+  PackagePlus,
+  Sparkles,
+  Zap
 } from 'lucide-react';
 import { UserState, VIPProduct, TransactionRecord, GiftCode, PlatformSettings, TeamMember } from '../types';
 import { isWithinWithdrawalHours } from '../utils/withdrawalHours';
-import { isAdminUser } from '../utils/adminAuth';
+import { isAdminUser, cleanNigerianPhoneDigits } from '../utils/adminAuth';
 import {
   fetchAdminPlatformDataOnDemand,
   adminUpdateUserBalanceInFirebase,
+  adminDeductUserBalanceInFirebase,
   adminGrantUserBonusInFirebase,
   adminResetUserPinInFirebase,
+  adminAssignProductToUserInFirebase,
   adminApproveWithdrawalInFirebase,
   adminRejectWithdrawalInFirebase,
   adminApproveDepositInFirebase,
@@ -61,6 +67,8 @@ import {
   fetchUserDownlineTree
 } from '../lib/referralService';
 import { getDynamicReferralLink } from '../utils/referral';
+import { purgeAllMockDataAcrossPlatform } from '../lib/authService';
+import { ErrorBoundary } from './ErrorBoundary';
 
 interface AdminPanelScreenProps {
   user: UserState;
@@ -80,7 +88,7 @@ interface AdminPanelScreenProps {
   onToggleGiftCode: (codeStr: string) => void;
   onUpdatePlatformSettings: (settings: PlatformSettings) => void;
   onResetUserFundPin: (newPin: string) => void;
-  onAddSimulatedTeamMember: (phone: string, level: 1 | 2 | 3, invested: number) => void;
+  onAdminAssignProduct?: (product: VIPProduct, targetPhone?: string) => void;
 }
 
 type AdminTab = 'deposits' | 'withdrawals' | 'overview' | 'users' | 'products' | 'gift_codes' | 'settings';
@@ -103,7 +111,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
   onToggleGiftCode,
   onUpdatePlatformSettings,
   onResetUserFundPin,
-  onAddSimulatedTeamMember,
+  onAdminAssignProduct,
 }) => {
   // STRICT ACCESS CHECK: Only 07077599057 and 09011711470 are authorized
   if (!isAdminUser(user.phone)) {
@@ -157,11 +165,17 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
   // User Security State & Actions Modal
   const [selectedUserForAction, setSelectedUserForAction] = useState<CloudUserRecord | null>(null);
-  const [actionModalType, setActionModalType] = useState<'balance' | 'bonus' | 'pin' | 'reassign_inviter' | 'credit_commission' | null>(null);
+  const [actionModalType, setActionModalType] = useState<'balance' | 'deduct' | 'bonus' | 'pin' | 'reassign_inviter' | 'credit_commission' | 'add_product' | null>(null);
   const [modalInputValue, setModalInputValue] = useState('');
   const [modalReasonValue, setModalReasonValue] = useState('');
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [distributeGrantCommission, setDistributeGrantCommission] = useState(false);
   const [commissionTier, setCommissionTier] = useState<1 | 2 | 3>(1);
   const [isActionSubmitting, setIsActionSubmitting] = useState(false);
+
+  // Quick Product Assignment State
+  const [quickAssignPhone, setQuickAssignPhone] = useState('');
+  const [quickAssignProductId, setQuickAssignProductId] = useState('');
 
   // Tree Modal Inspector State
   const [treeModalUser, setTreeModalUser] = useState<CloudUserRecord | null>(null);
@@ -265,12 +279,13 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
     if (record.bankAccount?.bankName && record.bankAccount?.accountNumber) {
       return record.bankAccount;
     }
+    const recPhoneClean = (record.userPhone || '').replace(/\D/g, '');
     const matchedUser = allUsersList.find(
       (u) =>
         (record.userId && u.uid === record.userId) ||
-        (record.userPhone &&
-          (u.phone === record.userPhone ||
-            u.phone.replace(/\D/g, '') === record.userPhone.replace(/\D/g, '')))
+        (recPhoneClean &&
+          ((u.phone || '') === record.userPhone ||
+            (u.phone || '').replace(/\D/g, '') === recPhoneClean))
     );
     if (matchedUser?.bankAccount?.bankName && matchedUser?.bankAccount?.accountNumber) {
       return matchedUser.bankAccount;
@@ -285,16 +300,18 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
   const withdrawalMap = new Map<string, CloudWithdrawalRecord>();
   (cloudData?.withdrawals || []).forEach((w) => withdrawalMap.set(w.id, w));
 
+  const taxRate = Number(platformSettings?.withdrawalTaxRate) || 0.18;
+
   (user.records || []).forEach((r) => {
     if (r.type === 'withdraw' && !withdrawalMap.has(r.id)) {
       withdrawalMap.set(r.id, {
         id: r.id,
         userId: user.phone,
         userPhone: user.phone,
-        amount: r.amount,
-        fee: r.fee ?? r.amount * platformSettings.withdrawalTaxRate,
-        status: r.status,
-        timestamp: r.timestamp,
+        amount: r.amount || 0,
+        fee: r.fee ?? (r.amount || 0) * taxRate,
+        status: r.status || 'pending',
+        timestamp: r.timestamp || Date.now(),
         bankAccount: r.bankAccount || user.bankAccount || null,
         details: r.details,
       });
@@ -302,7 +319,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
   });
 
   const allWithdrawals: CloudWithdrawalRecord[] = Array.from(withdrawalMap.values()).sort(
-    (a, b) => b.timestamp - a.timestamp
+    (a, b) => (b.timestamp || 0) - (a.timestamp || 0)
   );
 
   const pendingWithdrawals = allWithdrawals.filter((w) => w.status === 'pending');
@@ -313,25 +330,25 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
     if (withdrawalFilter !== 'all' && w.status !== withdrawalFilter) return false;
     if (withdrawalSearch.trim()) {
       const q = withdrawalSearch.trim().toLowerCase();
-      const matchId = w.id.toLowerCase().includes(q);
+      const matchId = (w.id || '').toLowerCase().includes(q);
       const matchPhone = (w.userPhone || '').toLowerCase().includes(q);
       const matchDetails = (w.details || '').toLowerCase().includes(q);
-      const matchAmt = w.amount.toString().includes(q);
+      const matchAmt = (w.amount ?? 0).toString().includes(q);
       const b = resolveWithdrawalBankAccount(w);
-      const matchBank = (b?.bankName || '').toLowerCase().includes(q) || 
-                        (b?.accountNumber || '').includes(q) ||
-                        (b?.accountName || '').toLowerCase().includes(q);
+      const matchBank = ((b?.bankName || '')).toLowerCase().includes(q) || 
+                        ((b?.accountNumber || '')).includes(q) ||
+                        ((b?.accountName || '')).toLowerCase().includes(q);
       return matchId || matchPhone || matchDetails || matchAmt || matchBank;
     }
     return true;
   });
 
-  const totalPendingAmount = pendingWithdrawals.reduce((s, r) => s + r.amount, 0);
-  const totalApprovedAmount = approvedWithdrawals.reduce((s, r) => s + r.amount, 0);
-  const totalRejectedAmount = rejectedWithdrawals.reduce((s, r) => s + r.amount, 0);
+  const totalPendingAmount = pendingWithdrawals.reduce((s, r) => s + (r.amount || 0), 0);
+  const totalApprovedAmount = approvedWithdrawals.reduce((s, r) => s + (r.amount || 0), 0);
+  const totalRejectedAmount = rejectedWithdrawals.reduce((s, r) => s + (r.amount || 0), 0);
   const totalPendingNetAmount = pendingWithdrawals.reduce((s, r) => {
-    const fee = r.fee ?? r.amount * platformSettings.withdrawalTaxRate;
-    return s + (r.amount - fee);
+    const fee = r.fee ?? (r.amount || 0) * taxRate;
+    return s + Math.max(0, (r.amount || 0) - fee);
   }, 0);
 
   const hoursCheck = isWithinWithdrawalHours(
@@ -363,7 +380,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
       setIsLoadingCloud(true);
       await adminApproveWithdrawalInFirebase(
         withdrawal.id,
-        withdrawal.userId || withdrawal.userPhone
+        withdrawal.userId,
+        withdrawal.userPhone
       );
       onApproveWithdrawal(withdrawal.id);
       showNotification(`Withdrawal #${withdrawal.id} marked as APPROVED in Firebase.`);
@@ -403,11 +421,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
   const handleApproveDepositTransaction = async (deposit: CloudDepositRecord) => {
     try {
       setIsLoadingCloud(true);
-      await adminApproveDepositInFirebase(deposit.id, deposit.userId, deposit.amount, deposit.userPhone);
-      if (onApproveDeposit) {
-        onApproveDeposit(deposit.id, deposit.userId, deposit.amount);
-      }
-      showNotification(`Deposit #${deposit.id} APPROVED! ₦${deposit.amount.toLocaleString()} credited to ${deposit.userPhone}.`);
+      const res = await adminApproveDepositInFirebase(deposit.id, deposit.userId, deposit.amount, deposit.userPhone);
+      showNotification(res?.message || `Deposit #${deposit.id} APPROVED! ₦${deposit.amount.toLocaleString()} credited to ${deposit.userPhone}.`);
       await loadDataOnDemand(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -446,21 +461,24 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
           showNotification('Please enter a valid non-negative balance.');
           return;
         }
-        await adminUpdateUserBalanceInFirebase(selectedUserForAction.uid, val, modalReasonValue || 'Admin Balance Calibration');
-        if (selectedUserForAction.phone === user.phone) {
-          onUpdateUserBalance(val);
-        }
+        await adminUpdateUserBalanceInFirebase(selectedUserForAction.uid, val, modalReasonValue || 'Admin Balance Calibration', selectedUserForAction.phone);
         showNotification(`Balance for ${selectedUserForAction.phone} updated to ₦${val.toLocaleString()} in Firebase.`);
+      } else if (actionModalType === 'deduct') {
+        const val = parseFloat(modalInputValue);
+        if (isNaN(val) || val <= 0) {
+          showNotification('Please enter a valid positive amount to deduct.');
+          return;
+        }
+        await adminDeductUserBalanceInFirebase(selectedUserForAction.uid, val, modalReasonValue || 'Admin Balance Deduction', selectedUserForAction.phone);
+        const newBal = Math.max(0, (selectedUserForAction.balance || 0) - val);
+        showNotification(`₦${val.toLocaleString()} successfully deducted from ${selectedUserForAction.phone}. New Balance: ₦${newBal.toLocaleString()}`);
       } else if (actionModalType === 'bonus') {
         const val = parseFloat(modalInputValue);
         if (isNaN(val) || val <= 0) {
           showNotification('Please enter a valid positive bonus amount.');
           return;
         }
-        await adminGrantUserBonusInFirebase(selectedUserForAction.uid, val, modalReasonValue || 'Admin VIP Grant');
-        if (selectedUserForAction.phone === user.phone) {
-          onAddManualBonus(val, modalReasonValue || 'Admin VIP Grant');
-        }
+        await adminGrantUserBonusInFirebase(selectedUserForAction.uid, val, modalReasonValue || 'Admin VIP Grant', selectedUserForAction.phone);
         showNotification(`₦${val.toLocaleString()} bonus granted to ${selectedUserForAction.phone} in Firebase.`);
       } else if (actionModalType === 'pin') {
         const pin = modalInputValue.trim();
@@ -468,8 +486,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
           showNotification('PIN must be exactly 6 numeric digits.');
           return;
         }
-        await adminResetUserPinInFirebase(selectedUserForAction.uid, pin);
-        if (selectedUserForAction.phone === user.phone) {
+        await adminResetUserPinInFirebase(selectedUserForAction.uid, pin, selectedUserForAction.phone);
+        if (cleanNigerianPhoneDigits(selectedUserForAction.phone) === cleanNigerianPhoneDigits(user.phone)) {
           onResetUserFundPin(pin);
         }
         showNotification(`Fund PIN for ${selectedUserForAction.phone} reset to ${pin} in Firebase.`);
@@ -494,16 +512,72 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
           commissionTier
         );
         showNotification(res.message);
+      } else if (actionModalType === 'add_product') {
+        const availableProducts = cloudData?.products || fallbackProducts;
+        const targetProd = availableProducts.find((p) => p.id === selectedProductId) || availableProducts[0];
+        if (!targetProd) {
+          showNotification('Please select a valid VIP product to grant.');
+          return;
+        }
+
+        const res = await adminAssignProductToUserInFirebase(
+          selectedUserForAction.uid,
+          targetProd,
+          selectedUserForAction.phone,
+          modalReasonValue || 'Admin VIP Direct Allocation',
+          distributeGrantCommission,
+          editableSettings
+        );
+
+        showNotification(res.message);
       }
 
       setActionModalType(null);
       setSelectedUserForAction(null);
       setModalInputValue('');
       setModalReasonValue('');
+      setSelectedProductId('');
+      setDistributeGrantCommission(false);
       await loadDataOnDemand(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showNotification(`Action failed: ${msg}`);
+    } finally {
+      setIsActionSubmitting(false);
+    }
+  };
+
+  const handleQuickAssignProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanPhone = cleanNigerianPhoneDigits(quickAssignPhone);
+    if (!cleanPhone || cleanPhone.length < 10) {
+      showNotification('Please enter a valid 10-11 digit Nigerian phone number.');
+      return;
+    }
+    const availableProducts = cloudData?.products || fallbackProducts;
+    const targetProd = availableProducts.find((p) => p.id === quickAssignProductId) || availableProducts[0];
+    if (!targetProd) {
+      showNotification('Please select a valid VIP product.');
+      return;
+    }
+
+    setIsActionSubmitting(true);
+    try {
+      const res = await adminAssignProductToUserInFirebase(
+        cleanPhone,
+        targetProd,
+        quickAssignPhone,
+        modalReasonValue || 'Admin Quick Fleet Deployment',
+        distributeGrantCommission,
+        editableSettings
+      );
+
+      showNotification(res.message);
+      setQuickAssignPhone('');
+      await loadDataOnDemand(false);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showNotification(`Grant failed: ${msg}`);
     } finally {
       setIsActionSubmitting(false);
     }
@@ -523,6 +597,24 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
     }
   };
 
+  const handlePurgeMockData = async () => {
+    try {
+      setIsLoadingCloud(true);
+      purgeAllMockDataAcrossPlatform();
+      const cleanGiftCodes = giftCodes.filter(
+        (gc) => gc.code !== 'TESLA2026' && gc.code !== 'TESLABONUS' && gc.code !== 'CYBERTRUCK'
+      );
+      await adminSaveGiftCodesInFirebase(cleanGiftCodes);
+      showNotification('Successfully purged all mock data across platform!');
+      await loadDataOnDemand(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showNotification(`Purge error: ${msg}`);
+    } finally {
+      setIsLoadingCloud(false);
+    }
+  };
+
   const handleOverviewSetBalance = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(customBalance);
@@ -539,8 +631,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
     try {
       setIsLoadingCloud(true);
-      await adminUpdateUserBalanceInFirebase(target.uid, val, 'Overview Panel Override');
-      if (target.phone === user.phone) {
+      await adminUpdateUserBalanceInFirebase(target.uid, val, 'Overview Panel Override', target.phone);
+      if (cleanNigerianPhoneDigits(target.phone) === cleanNigerianPhoneDigits(user.phone)) {
         onUpdateUserBalance(val);
       }
       showNotification(`Balance for ${target.phone} set to ₦${val.toLocaleString()} in Firebase!`);
@@ -751,6 +843,17 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
               </span>
             </div>
 
+            {/* PURGE MOCK DATA BUTTON */}
+            <button 
+              onClick={handlePurgeMockData}
+              disabled={isLoadingCloud}
+              className="text-xs text-amber-300 hover:text-amber-200 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-950/40 hover:bg-amber-900/50 border border-amber-500/40 transition cursor-pointer font-bold shadow-xs disabled:opacity-50"
+              title="Clear all mock data, test team trees, and mock gift codes"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Purge Mock Data</span>
+            </button>
+
             {/* ON-DEMAND REFRESH BUTTON */}
             <button 
               onClick={() => loadDataOnDemand(true)}
@@ -932,6 +1035,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
         {/* Right Main Content Area */}
         <main className="flex-1 min-w-0">
+          <ErrorBoundary fallbackTitle="Admin Workspace View Guard" onReset={() => setActiveTab('deposits')}>
           {/* ========================================================================= */}
           {/* TAB: DEPOSITS (ON-DEMAND FIREBASE DEPOSIT APPROVAL QUEUE)                  */}
           {/* ========================================================================= */}
@@ -1261,7 +1365,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       {platformSettings.withdrawalStartHour ?? 9}:00 – {platformSettings.withdrawalEndHour ?? 17}:00
                     </span>
                     <div className="text-[11px] text-neutral-400">
-                      Withdrawal fee rate: {(platformSettings.withdrawalTaxRate * 100).toFixed(0)}% • Min withdrawal: ₦{platformSettings.minWithdrawalAmount.toLocaleString()}
+                      Withdrawal fee rate: {((Number(platformSettings?.withdrawalTaxRate) || 0.18) * 100).toFixed(0)}% • Min withdrawal: ₦{Number(platformSettings?.minWithdrawal ?? 800).toLocaleString()}
                     </div>
                   </div>
                 </div>
@@ -1342,7 +1446,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                             <th className="py-3.5 px-4">Request ID &amp; Time</th>
                             <th className="py-3.5 px-4 min-w-[240px]">Applicant &amp; Bank Account</th>
                             <th className="py-3.5 px-4">Gross Request</th>
-                            <th className="py-3.5 px-4">Fee ({(platformSettings.withdrawalTaxRate * 100).toFixed(0)}%)</th>
+                            <th className="py-3.5 px-4">Fee ({((Number(platformSettings?.withdrawalTaxRate) || 0.18) * 100).toFixed(0)}%)</th>
                             <th className="py-3.5 px-4 min-w-[170px]">Net Payout (Net of Charges)</th>
                             <th className="py-3.5 px-4">Status</th>
                             <th className="py-3.5 px-4 text-right min-w-[160px]">Audit Actions</th>
@@ -1350,8 +1454,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                         </thead>
                         <tbody className="divide-y divide-neutral-800/60 text-xs">
                           {filteredWithdrawals.map((record) => {
-                            const fee = record.fee ?? (record.amount * (platformSettings.withdrawalTaxRate ?? 0.1));
-                            const net = Math.max(0, record.amount - fee);
+                            const fee = record.fee ?? ((record.amount || 0) * (Number(platformSettings?.withdrawalTaxRate) || 0.18));
+                            const net = Math.max(0, (record.amount || 0) - fee);
                             const isPending = record.status === 'pending';
                             const isSuccess = record.status === 'success';
                             const isFailed = record.status === 'failed';
@@ -1443,7 +1547,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                                     - ₦ {fee.toLocaleString()}
                                   </div>
                                   <div className="text-[10px] text-neutral-500">
-                                    {(platformSettings.withdrawalTaxRate * 100).toFixed(0)}% charge
+                                    {((Number(platformSettings?.withdrawalTaxRate) || 0.18) * 100).toFixed(0)}% charge
                                   </div>
                                 </td>
 
@@ -1550,8 +1654,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                     {/* Mobile & Tablet Card View */}
                     <div className="block lg:hidden divide-y divide-neutral-800/80">
                       {filteredWithdrawals.map((record) => {
-                        const fee = record.fee ?? (record.amount * (platformSettings.withdrawalTaxRate ?? 0.1));
-                        const net = Math.max(0, record.amount - fee);
+                        const fee = record.fee ?? ((record.amount || 0) * (Number(platformSettings?.withdrawalTaxRate) || 0.18));
+                        const net = Math.max(0, (record.amount || 0) - fee);
                         const isPending = record.status === 'pending';
                         const isSuccess = record.status === 'success';
                         const isFailed = record.status === 'failed';
@@ -1628,7 +1732,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                                 <span className="font-mono font-bold text-white">₦ {record.amount.toLocaleString()}</span>
                               </div>
                               <div className="flex items-center justify-between text-xs">
-                                <span className="text-neutral-400">Deducted Fee ({(platformSettings.withdrawalTaxRate * 100).toFixed(0)}%):</span>
+                                <span className="text-neutral-400">Deducted Fee ({((Number(platformSettings?.withdrawalTaxRate) || 0.18) * 100).toFixed(0)}%):</span>
                                 <span className="font-mono text-amber-400">- ₦ {fee.toLocaleString()}</span>
                               </div>
                               <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between">
@@ -2042,6 +2146,21 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                           <button
                             onClick={() => {
                               setSelectedUserForAction(u);
+                              setActionModalType('add_product');
+                              const prods = cloudData?.products || fallbackProducts;
+                              setSelectedProductId(prods[0]?.id || '');
+                              setModalReasonValue('Admin VIP Direct Allocation');
+                              setDistributeGrantCommission(false);
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-xs"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Add Product</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
                               setActionModalType('balance');
                               setModalInputValue(u.balance.toString());
                               setModalReasonValue('Admin Calibration');
@@ -2050,6 +2169,19 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                           >
                             <Wallet className="w-3.5 h-3.5" />
                             <span>Set Balance</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSelectedUserForAction(u);
+                              setActionModalType('deduct');
+                              setModalInputValue('1000');
+                              setModalReasonValue('Executive Debit / Deduction');
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-500/30 hover:bg-rose-600/30 text-xs font-bold transition cursor-pointer flex items-center gap-1"
+                          >
+                            <MinusCircle className="w-3.5 h-3.5" />
+                            <span>Deduct Balance</span>
                           </button>
 
                           <button
@@ -2117,6 +2249,80 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                     );
                   })
                 )}
+              </div>
+
+              {/* Real-Time VIP Product Direct Assignment Console */}
+              <div className="bg-neutral-900 border border-amber-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-bold">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                        Real-Time VIP Fleet Direct Grant Console
+                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] px-2 py-0.5 rounded-full font-mono font-bold uppercase">
+                          Active Sync
+                        </span>
+                      </h4>
+                      <p className="text-xs text-neutral-400">
+                        Manually deploy an active VIP investment package directly to any user account in Firestore and their live session.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-xs text-neutral-400">
+                    Target: <span className="text-amber-400 font-bold font-mono">Firestore & Live User Store</span>
+                  </div>
+                </div>
+
+                <form onSubmit={handleQuickAssignProduct} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Recipient Phone Number</label>
+                    <input
+                      type="text"
+                      value={quickAssignPhone}
+                      onChange={(e) => setQuickAssignPhone(e.target.value)}
+                      placeholder="e.g. 07077599057"
+                      className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white font-mono focus:border-amber-500 focus:outline-hidden"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Select VIP Product Package</label>
+                    <select
+                      value={quickAssignProductId || (cloudData?.products || fallbackProducts)[0]?.id}
+                      onChange={(e) => setQuickAssignProductId(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white font-medium focus:border-amber-500 focus:outline-hidden"
+                    >
+                      {(cloudData?.products || fallbackProducts).map((prod) => (
+                        <option key={prod.id} value={prod.id}>
+                          {prod.vipLevel} • {prod.title} (₦{prod.price.toLocaleString()} • +₦{prod.dailyIncome.toLocaleString()}/day)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Note / Reason</label>
+                    <input
+                      type="text"
+                      value={modalReasonValue}
+                      onChange={(e) => setModalReasonValue(e.target.value)}
+                      placeholder="e.g. VIP Fleet Grant"
+                      className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:border-amber-500 focus:outline-hidden"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isActionSubmitting}
+                    className="w-full py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white text-xs font-bold rounded-xl transition cursor-pointer flex items-center justify-center gap-1.5 shadow-md shadow-amber-600/20 disabled:opacity-50"
+                  >
+                    <PackagePlus className="w-4 h-4" />
+                    <span>{isActionSubmitting ? 'Deploying...' : 'Deploy VIP Node to User'}</span>
+                  </button>
+                </form>
               </div>
 
               {/* Real Referral & Downline Management Console */}
@@ -2243,7 +2449,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                           name="tierSelect"
                           className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-2.5 py-2 text-xs text-white"
                         >
-                          <option value={1}>Tier 1 ({platformSettings.level1CommissionPct ?? 35}%)</option>
+                          <option value={1}>Tier 1 ({platformSettings.level1CommissionPct ?? 25}%)</option>
                           <option value={2}>Tier 2 ({platformSettings.level2CommissionPct ?? 1}%)</option>
                           <option value={3}>Tier 3 ({platformSettings.level3CommissionPct ?? 1}%)</option>
                         </select>
@@ -2330,17 +2536,39 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                         </div>
                       </div>
 
-                      <button
-                        onClick={() => handleToggleProductStatusInFirebase(prod.id)}
-                        className={`px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
-                          isAvailable
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'
-                            : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700'
-                        }`}
-                      >
-                        {isAvailable ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
-                        <span>{isAvailable ? 'Active' : 'Locked'}</span>
-                      </button>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => {
+                            const target = (cloudData?.users || [])[0];
+                            if (target) {
+                              setSelectedUserForAction(target);
+                              setActionModalType('add_product');
+                              setSelectedProductId(prod.id);
+                              setModalReasonValue('Admin VIP Fleet Direct Grant');
+                            } else {
+                              setQuickAssignProductId(prod.id);
+                              showNotification(`Selected ${prod.vipLevel}. Enter user phone in Quick Deploy console below or in Users tab.`);
+                            }
+                          }}
+                          className="px-2.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30"
+                          title="Grant this VIP product to user"
+                        >
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="hidden sm:inline">Grant to User</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleToggleProductStatusInFirebase(prod.id)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                            isAvailable
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30'
+                              : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700'
+                          }`}
+                        >
+                          {isAvailable ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                          <span>{isAvailable ? 'Active' : 'Locked'}</span>
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -2634,14 +2862,90 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-[11px] text-neutral-400 block mb-1">Official Telegram Community Link</label>
-                    <input
-                      type="text"
-                      value={editableSettings.telegramLink}
-                      onChange={(e) => setEditableSettings({ ...editableSettings, telegramLink: e.target.value })}
-                      className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-hidden focus:border-red-500"
-                    />
+                  {/* Official Deposit Receiving Account Configuration */}
+                  <div className="bg-neutral-950 border border-emerald-900/60 rounded-xl p-4 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Building2 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                          Official Platform Deposit Receiving Account
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-neutral-400 font-mono">
+                        Displayed on member Recharge & Checkout screen
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-[11px] text-neutral-400 block mb-1">Destination Bank Name</label>
+                        <input
+                          type="text"
+                          value={editableSettings.depositBankName ?? 'CARBON'}
+                          onChange={(e) => setEditableSettings({ ...editableSettings, depositBankName: e.target.value })}
+                          placeholder="e.g. CARBON"
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-emerald-500 font-semibold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-neutral-400 block mb-1">Account Number</label>
+                        <input
+                          type="text"
+                          value={editableSettings.depositAccountNo ?? '1581957640'}
+                          onChange={(e) => setEditableSettings({ ...editableSettings, depositAccountNo: e.target.value })}
+                          placeholder="e.g. 1581957640"
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-emerald-500 font-mono font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] text-neutral-400 block mb-1">Beneficiary Account Name</label>
+                        <input
+                          type="text"
+                          value={editableSettings.depositAccountName ?? 'LEVIATHAN HYPERMARKET'}
+                          onChange={(e) => setEditableSettings({ ...editableSettings, depositAccountName: e.target.value })}
+                          placeholder="e.g. LEVIATHAN HYPERMARKET"
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-emerald-500 font-semibold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Official Telegram Group Link</label>
+                      <input
+                        type="text"
+                        value={editableSettings.telegramGroupLink ?? editableSettings.telegramLink ?? 'https://t.me/teslainvestment456'}
+                        onChange={(e) =>
+                          setEditableSettings({
+                            ...editableSettings,
+                            telegramLink: e.target.value,
+                            telegramGroupLink: e.target.value,
+                          })
+                        }
+                        placeholder="https://t.me/teslainvestment456"
+                        className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-purple-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Customer Service Manager Link</label>
+                      <input
+                        type="text"
+                        value={editableSettings.customerServiceManagerLink ?? 'https://t.me/sallyservice4'}
+                        onChange={(e) =>
+                          setEditableSettings({
+                            ...editableSettings,
+                            customerServiceManagerLink: e.target.value,
+                            customerServiceUsername: e.target.value.replace(/.*t\.me\//, '').replace('@', ''),
+                          })
+                        }
+                        placeholder="https://t.me/sallyservice4"
+                        className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-purple-500"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -2665,6 +2969,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
               </div>
             </div>
           )}
+          </ErrorBoundary>
         </main>
       </div>
 
@@ -2676,18 +2981,22 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-red-600/20 text-red-400 flex items-center justify-center font-bold">
                   {actionModalType === 'balance' && <Wallet className="w-4 h-4" />}
+                  {actionModalType === 'deduct' && <MinusCircle className="w-4 h-4 text-rose-400" />}
                   {actionModalType === 'bonus' && <PlusCircle className="w-4 h-4" />}
                   {actionModalType === 'pin' && <KeyRound className="w-4 h-4" />}
                   {actionModalType === 'reassign_inviter' && <Building2 className="w-4 h-4" />}
                   {actionModalType === 'credit_commission' && <DollarSign className="w-4 h-4" />}
+                  {actionModalType === 'add_product' && <Sparkles className="w-4 h-4 text-amber-400" />}
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-white">
                     {actionModalType === 'balance' && 'Update Account Balance'}
+                    {actionModalType === 'deduct' && 'Deduct Balance from Member'}
                     {actionModalType === 'bonus' && 'Issue Executive Bonus'}
                     {actionModalType === 'pin' && 'Reset 6-Digit Fund PIN'}
                     {actionModalType === 'reassign_inviter' && 'Reassign Referral Inviter'}
                     {actionModalType === 'credit_commission' && 'Award Team Commission'}
+                    {actionModalType === 'add_product' && 'Real-Time Add VIP Product'}
                   </h4>
                   <p className="text-[11px] text-neutral-400 font-mono">
                     User: {selectedUserForAction.phone}
@@ -2706,61 +3015,133 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             </div>
 
             <form onSubmit={handleExecuteModalAction} className="space-y-3">
-              {actionModalType === 'credit_commission' && (
-                <div>
-                  <label className="text-[11px] text-neutral-400 block mb-1">Commission Tier Level</label>
-                  <select
-                    value={commissionTier}
-                    onChange={(e) => setCommissionTier(Number(e.target.value) as 1 | 2 | 3)}
-                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-red-500"
-                  >
-                    <option value={1}>Tier 1 ({platformSettings.level1CommissionPct ?? 35}%)</option>
-                    <option value={2}>Tier 2 ({platformSettings.level2CommissionPct ?? 1}%)</option>
-                    <option value={3}>Tier 3 ({platformSettings.level3CommissionPct ?? 1}%)</option>
-                  </select>
-                </div>
-              )}
+              {actionModalType === 'add_product' ? (
+                <>
+                  <div>
+                    <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Select VIP Product Package</label>
+                    <select
+                      value={selectedProductId || (cloudData?.products || fallbackProducts)[0]?.id}
+                      onChange={(e) => setSelectedProductId(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-medium focus:outline-hidden focus:border-amber-500"
+                    >
+                      {(cloudData?.products || fallbackProducts).map((prod) => (
+                        <option key={prod.id} value={prod.id}>
+                          {prod.vipLevel} • {prod.title} (₦{prod.price.toLocaleString()} | ₦{prod.dailyIncome.toLocaleString()}/day | {prod.validityDays} Days)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div>
-                <label className="text-[11px] text-neutral-400 block mb-1">
-                  {actionModalType === 'balance' && 'New Wallet Balance (₦)'}
-                  {actionModalType === 'bonus' && 'Bonus Credit Amount (₦)'}
-                  {actionModalType === 'pin' && 'New 6-Digit Security PIN'}
-                  {actionModalType === 'reassign_inviter' && 'New Inviter Code (Upline)'}
-                  {actionModalType === 'credit_commission' && 'Commission Bonus Amount (₦)'}
-                </label>
-                <input
-                  type={actionModalType === 'reassign_inviter' ? 'text' : actionModalType === 'pin' ? 'text' : 'number'}
-                  maxLength={actionModalType === 'pin' ? 6 : undefined}
-                  value={modalInputValue}
-                  onChange={(e) => setModalInputValue(actionModalType === 'reassign_inviter' ? e.target.value.toUpperCase() : e.target.value)}
-                  placeholder={
-                    actionModalType === 'pin' 
-                      ? '123456' 
-                      : actionModalType === 'reassign_inviter' 
-                      ? 'e.g. P5ZP4S' 
-                      : '5000'
-                  }
-                  className={`w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white font-mono focus:outline-hidden focus:border-red-500 ${
-                    actionModalType === 'reassign_inviter' ? 'uppercase' : ''
-                  }`}
-                  required
-                />
-              </div>
+                  {(() => {
+                    const currentProd = (cloudData?.products || fallbackProducts).find(
+                      (p) => p.id === (selectedProductId || (cloudData?.products || fallbackProducts)[0]?.id)
+                    );
+                    if (!currentProd) return null;
+                    return (
+                      <div className="bg-neutral-950 border border-amber-500/20 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-400">Daily Revenue Yield:</span>
+                          <span className="text-emerald-400 font-mono font-bold">+₦{currentProd.dailyIncome.toLocaleString()} / day</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-400">Total Lifecycle Yield:</span>
+                          <span className="text-amber-300 font-mono font-bold">₦{currentProd.totalIncome.toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-400">Active Cycle Duration:</span>
+                          <span className="text-white font-mono">{currentProd.validityDays} Days</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
 
-              {actionModalType !== 'pin' && actionModalType !== 'reassign_inviter' && (
-                <div>
-                  <label className="text-[11px] text-neutral-400 block mb-1">
-                    {actionModalType === 'credit_commission' ? 'Downline Member Phone / Reference' : 'Reason / Reference Note'}
-                  </label>
-                  <input
-                    type="text"
-                    value={modalReasonValue}
-                    onChange={(e) => setModalReasonValue(e.target.value)}
-                    placeholder={actionModalType === 'credit_commission' ? '08123456789' : 'Executive Authorization'}
-                    className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-red-500"
-                  />
-                </div>
+                  <div className="bg-neutral-950/60 border border-neutral-800 rounded-xl p-3">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={distributeGrantCommission}
+                        onChange={(e) => setDistributeGrantCommission(e.target.checked)}
+                        className="w-4 h-4 rounded-sm border-neutral-700 bg-neutral-900 text-amber-500 focus:ring-0 cursor-pointer"
+                      />
+                      <span className="text-xs text-neutral-300">
+                        Distribute 3-Tier Referral Commissions to Upline
+                      </span>
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] text-neutral-400 block mb-1">Reason / Note</label>
+                    <input
+                      type="text"
+                      value={modalReasonValue}
+                      onChange={(e) => setModalReasonValue(e.target.value)}
+                      placeholder="e.g. Executive Promotion Grant"
+                      className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-amber-500"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  {actionModalType === 'credit_commission' && (
+                    <div>
+                      <label className="text-[11px] text-neutral-400 block mb-1">Commission Tier Level</label>
+                      <select
+                        value={commissionTier}
+                        onChange={(e) => setCommissionTier(Number(e.target.value) as 1 | 2 | 3)}
+                        className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-red-500"
+                      >
+                        <option value={1}>Tier 1 ({platformSettings.level1CommissionPct ?? 25}%)</option>
+                        <option value={2}>Tier 2 ({platformSettings.level2CommissionPct ?? 1}%)</option>
+                        <option value={3}>Tier 3 ({platformSettings.level3CommissionPct ?? 1}%)</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[11px] text-neutral-400 block mb-1">
+                      {actionModalType === 'balance' && 'New Wallet Balance (₦)'}
+                      {actionModalType === 'deduct' && 'Amount to Deduct / Debit (₦)'}
+                      {actionModalType === 'bonus' && 'Bonus Credit Amount (₦)'}
+                      {actionModalType === 'pin' && 'New 6-Digit Security PIN'}
+                      {actionModalType === 'reassign_inviter' && 'New Inviter Code (Upline)'}
+                      {actionModalType === 'credit_commission' && 'Commission Bonus Amount (₦)'}
+                    </label>
+                    <input
+                      type={actionModalType === 'reassign_inviter' ? 'text' : actionModalType === 'pin' ? 'text' : 'number'}
+                      maxLength={actionModalType === 'pin' ? 6 : undefined}
+                      value={modalInputValue}
+                      onChange={(e) => setModalInputValue(actionModalType === 'reassign_inviter' ? e.target.value.toUpperCase() : e.target.value)}
+                      placeholder={
+                        actionModalType === 'pin' 
+                          ? '123456' 
+                          : actionModalType === 'reassign_inviter' 
+                          ? 'e.g. P5ZP4S' 
+                          : actionModalType === 'deduct'
+                          ? '1000'
+                          : '5000'
+                      }
+                      className={`w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-sm text-white font-mono focus:outline-hidden focus:border-red-500 ${
+                        actionModalType === 'reassign_inviter' ? 'uppercase' : ''
+                      }`}
+                      required
+                    />
+                  </div>
+
+                  {actionModalType !== 'pin' && actionModalType !== 'reassign_inviter' && (
+                    <div>
+                      <label className="text-[11px] text-neutral-400 block mb-1">
+                        {actionModalType === 'credit_commission' ? 'Downline Member Phone / Reference' : 'Reason / Reference Note'}
+                      </label>
+                      <input
+                        type="text"
+                        value={modalReasonValue}
+                        onChange={(e) => setModalReasonValue(e.target.value)}
+                        placeholder={actionModalType === 'credit_commission' ? '08123456789' : 'Executive Authorization'}
+                        className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-red-500"
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               <div className="flex gap-2 pt-2">
@@ -2777,9 +3158,17 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 <button
                   type="submit"
                   disabled={isActionSubmitting}
-                  className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-xs font-bold text-white transition disabled:opacity-50 cursor-pointer"
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white transition disabled:opacity-50 cursor-pointer ${
+                    actionModalType === 'add_product'
+                      ? 'bg-amber-600 hover:bg-amber-500 shadow-md shadow-amber-600/20'
+                      : 'bg-red-600 hover:bg-red-500'
+                  }`}
                 >
-                  {isActionSubmitting ? 'Saving to Database...' : 'Confirm Action'}
+                  {isActionSubmitting
+                    ? 'Saving to Database...'
+                    : actionModalType === 'add_product'
+                    ? 'Grant VIP Product in Real-Time'
+                    : 'Confirm Action'}
                 </button>
               </div>
             </form>
@@ -2844,7 +3233,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 {/* Level 1 */}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between text-neutral-300 font-bold border-b border-neutral-800 pb-1">
-                    <span className="text-emerald-400">Level 1 Downlines ({platformSettings.level1CommissionPct ?? 35}%)</span>
+                    <span className="text-emerald-400">Level 1 Downlines ({platformSettings.level1CommissionPct ?? 25}%)</span>
                     <span className="font-mono text-neutral-400">{treeModalData?.level1?.length || 0} members</span>
                   </div>
                   {(!treeModalData?.level1 || treeModalData.level1.length === 0) ? (
@@ -2965,8 +3354,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             </div>
 
             {(() => {
-              const fee = reversalModalTarget.fee ?? (reversalModalTarget.amount * (platformSettings.withdrawalTaxRate ?? 0.1));
-              const net = reversalModalTarget.amount - fee;
+              const fee = reversalModalTarget.fee ?? ((reversalModalTarget.amount || 0) * (Number(platformSettings?.withdrawalTaxRate) || 0.18));
+              const net = Math.max(0, (reversalModalTarget.amount || 0) - fee);
               const bank = resolveWithdrawalBankAccount(reversalModalTarget);
 
               return (

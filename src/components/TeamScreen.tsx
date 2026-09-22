@@ -7,12 +7,14 @@ interface TeamScreenProps {
   user: UserState;
   platformSettings?: PlatformSettings;
   onNavigateToTeamDetails: () => void;
+  onOpenFlyerModal?: () => void;
 }
 
 export const TeamScreen: React.FC<TeamScreenProps> = ({ 
   user, 
   platformSettings, 
-  onNavigateToTeamDetails 
+  onNavigateToTeamDetails,
+  onOpenFlyerModal,
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -131,7 +133,7 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
             </div>
 
             {/* Quick Share Buttons Bar */}
-            <div className="pt-2 border-t border-white/10 flex items-center gap-2">
+            <div className="pt-2 border-t border-white/10 flex flex-wrap items-center gap-2">
               <button
                 onClick={handleShareClick}
                 className="flex-1 py-2 px-3 rounded-xl bg-[#00c269] hover:bg-[#00ab5c] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
@@ -140,11 +142,23 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
                 <span>Share Link</span>
               </button>
 
+              {onOpenFlyerModal && (
+                <button
+                  type="button"
+                  onClick={onOpenFlyerModal}
+                  className="py-2 px-3 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-amber-200 border border-amber-400/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95"
+                  title="Generate Advertising Flyer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Flyer Studio</span>
+                </button>
+              )}
+
               <a
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="py-2 px-3.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition flex items-center gap-1.5"
+                className="py-2 px-3 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition flex items-center gap-1.5"
                 title="Share via WhatsApp"
               >
                 <MessageCircle className="w-3.5 h-3.5" />
@@ -155,7 +169,7 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
                 href={telegramUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="py-2 px-3.5 rounded-xl bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 border border-sky-500/30 text-xs font-bold transition flex items-center gap-1.5"
+                className="py-2 px-3 rounded-xl bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 border border-sky-500/30 text-xs font-bold transition flex items-center gap-1.5"
                 title="Share via Telegram"
               >
                 <Send className="w-3.5 h-3.5" />
@@ -194,7 +208,7 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
                 LV1
               </div>
               <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{platformSettings?.level1CommissionPct ?? 35}%</div>
+                <div className="text-sm font-bold text-neutral-800">{platformSettings?.level1CommissionPct ?? 25}%</div>
                 <div className="text-[11px] text-neutral-500">Buy commission</div>
               </div>
               <div className="flex-1">
@@ -276,7 +290,7 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
 
           <div className="text-xs space-y-2.5 text-neutral-100 font-normal leading-relaxed">
             <p>
-              When a friend you invite registers and invests, you will immediately receive a cash reward of 35% of the friend's investment amount.
+              When a friend you invite registers and invests, you will immediately receive a cash reward of {platformSettings?.level1CommissionPct ?? 25}% of the friend's investment amount.
             </p>
             <p>
               When your Level 2 team members invest, you will receive a 1% cash bonus.

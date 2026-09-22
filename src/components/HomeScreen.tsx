@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Coins, CalendarCheck2, Headset, CheckCircle2, Zap, ArrowRight } from 'lucide-react';
+import { DollarSign, Coins, CalendarCheck2, Headset, CheckCircle2, Zap, ArrowRight, Flame, Crown } from 'lucide-react';
 import { Ticker } from './Ticker';
-import { MOCK_TICKERS } from '../data/initialData';
+import { PLATFORM_TICKERS } from '../data/initialData';
 import { UserState } from '../types';
 import { TeslaLogo } from './TeslaLogo';
 
@@ -10,6 +10,7 @@ interface HomeScreenProps {
   onNavigate: (screen: 'recharge' | 'withdraw' | 'customer_service' | 'my_store') => void;
   onOpenGifts: () => void;
   onGoToProducts: () => void;
+  onGoToPromoters?: () => void;
   onOpenNotify: () => void;
   onDailyCheckIn: () => void;
 }
@@ -26,6 +27,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigate,
   onOpenGifts,
   onGoToProducts,
+  onGoToPromoters,
   onOpenNotify,
   onDailyCheckIn,
 }) => {
@@ -38,8 +40,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  const todayStr = new Date().toDateString();
-  const hasCheckedInToday = user.lastCheckInDate === todayStr;
+  const today = new Date().toISOString().split('T')[0];
+  const hasCheckedInToday = user.lastCheckInDate === today;
 
   return (
     <div className="min-h-screen pb-24 bg-neutral-50 text-neutral-900">
@@ -137,7 +139,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </div>
 
         {/* Ticker / Marquee Bar */}
-        <Ticker items={MOCK_TICKERS} />
+        <Ticker items={PLATFORM_TICKERS} />
 
         {/* Balance Cards (Screenshot 4) */}
         <div className="grid grid-cols-2 gap-3">
@@ -185,6 +187,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           >
             {hasCheckedInToday ? 'Signed In' : 'Sign In'}
           </button>
+        </div>
+
+        {/* Promoter Mega Bounty Card */}
+        <div
+          onClick={onGoToPromoters}
+          className="relative bg-gradient-to-r from-neutral-900 via-neutral-850 to-rose-950 rounded-xl p-3.5 text-white shadow-xs cursor-pointer group border border-rose-500/20 active:scale-[0.99] transition"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+                <Flame className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <h4 className="text-xs font-black text-white">Promoter Mega Bounty</h4>
+                  <span className="px-1.5 py-0.2 bg-gradient-to-r from-amber-400 to-rose-500 text-[9px] font-black text-white rounded-full">
+                    UP TO ₦3.5M
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-300 mt-0.5">
+                  Earn progressive cash bounties for inviting active VIP buyers!
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center text-xs font-bold text-amber-300 group-hover:translate-x-0.5 transition-transform">
+              <span>View</span>
+              <ArrowRight className="w-4 h-4 ml-0.5" />
+            </div>
+          </div>
         </div>
 
         {/* Promo Banner Card (Screenshot 4) */}

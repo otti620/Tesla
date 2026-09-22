@@ -1,5 +1,16 @@
 import React, { useState } from 'react';
-import { ChevronLeft, FileClock, CreditCard, AlertCircle, CheckCircle2, Lock, Clock } from 'lucide-react';
+import { 
+  ChevronLeft, 
+  FileClock, 
+  CreditCard, 
+  AlertCircle, 
+  CheckCircle2, 
+  Clock, 
+  ShoppingBag, 
+  Wallet, 
+  ArrowRight,
+  ShieldAlert
+} from 'lucide-react';
 import { UserState } from '../types';
 import { TeslaLogo } from './TeslaLogo';
 import { isWithinWithdrawalHours } from '../utils/withdrawalHours';
@@ -9,6 +20,8 @@ interface WithdrawScreenProps {
   onBack: () => void;
   onGoToRecords: () => void;
   onGoToAddBank: () => void;
+  onGoToProducts?: () => void;
+  onGoToRecharge?: () => void;
   onSuccessWithdraw: (amount: number, fee: number) => void;
   taxRate?: number;
   minWithdrawal?: number;
@@ -22,9 +35,11 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
   onBack,
   onGoToRecords,
   onGoToAddBank,
+  onGoToProducts,
+  onGoToRecharge,
   onSuccessWithdraw,
   taxRate = 0.18,
-  minWithdrawal = 2300,
+  minWithdrawal = 800,
   withdrawalStartHour = 9,
   withdrawalEndHour = 17,
   allowAdminBypassHours = false,
@@ -32,14 +47,20 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
   const [withdrawAmount, setWithdrawAmount] = useState<string>('');
   const [error, setError] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [enteredPin, setEnteredPin] = useState('');
 
   const numAmount = parseFloat(withdrawAmount) || 0;
   const taxDeduction = numAmount * taxRate;
   const receivedAmount = Math.max(0, numAmount - taxDeduction);
 
   const hoursCheck = isWithinWithdrawalHours(withdrawalStartHour, withdrawalEndHour);
+
+  // Prerequisites checks: User must purchase a product and make a deposit before withdrawal
+  const hasPurchasedProduct = 
+    (user.purchasedProducts && user.purchasedProducts.length > 0) ||
+    user.records.some((r) => r.type === 'purchase');
+
+  const hasMadeDeposit = 
+    user.records.some((r) => r.type === 'recharge');
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/\D/g, '');
@@ -60,6 +81,18 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
       return;
     }
 
+    // Prerequisite 1: Must purchase a VIP product
+    if (!hasPurchasedProduct) {
+      setError('Withdrawal Requirement: You must purchase and activate at least one VIP Power Generator product before withdrawing funds.');
+      return;
+    }
+
+    // Prerequisite 2: Must make a deposit/recharge
+    if (!hasMadeDeposit) {
+      setError('Withdrawal Requirement: You must make an account deposit/recharge before requesting withdrawal.');
+      return;
+    }
+
     if (!user.bankAccount) {
       setError('Please add a bank account first before requesting withdrawal');
       return;
@@ -75,29 +108,13 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
       return;
     }
 
-    if (user.fundPin) {
-      setShowPinModal(true);
-    } else {
-      executeWithdrawal();
-    }
+    executeWithdrawal();
   };
 
   const executeWithdrawal = () => {
     onSuccessWithdraw(numAmount, taxDeduction);
     setSuccessMsg(`Withdrawal of ₦ ${numAmount.toLocaleString()} submitted successfully! ₦ ${receivedAmount.toLocaleString()} will be credited to ${user.bankAccount?.bankName}.`);
     setWithdrawAmount('');
-    setShowPinModal(false);
-    setEnteredPin('');
-  };
-
-  const handleConfirmPin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (enteredPin !== user.fundPin) {
-      setError('Incorrect withdrawal Fund PIN. Please try again.');
-      setShowPinModal(false);
-      return;
-    }
-    executeWithdrawal();
   };
 
   return (
@@ -170,6 +187,101 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           }`}>
             {hoursCheck.isAllowed ? 'Open' : 'Closed'}
           </span>
+        </div>
+
+        {/* Withdrawal Eligibility Requirements Card */}
+        <div className="p-3.5 rounded-xl border border-neutral-200 bg-neutral-50/70 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-bold text-neutral-800 flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4 text-emerald-600" />
+              <span>Withdrawal Requirements</span>
+            </div>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+              hasPurchasedProduct && hasMadeDeposit
+                ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
+                : 'bg-amber-100 text-amber-800 border border-amber-300'
+            }`}>
+              {hasPurchasedProduct && hasMadeDeposit ? 'Eligible' : 'Action Required'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+            {/* Requirement 1: VIP Product */}
+            <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
+              hasPurchasedProduct ? 'bg-white border-emerald-200' : 'bg-amber-50/60 border-amber-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
+                  hasPurchasedProduct ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="font-semibold text-neutral-800 text-[11px]">VIP Product Purchase</div>
+                  <div className="text-[10px] text-neutral-500">
+                    {hasPurchasedProduct 
+                      ? `${user.purchasedProducts.length} Active Unit(s)` 
+                      : 'Requires 1 active product'}
+                  </div>
+                </div>
+              </div>
+
+              {hasPurchasedProduct ? (
+                <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Ready</span>
+                </span>
+              ) : (
+                onGoToProducts && (
+                  <button
+                    type="button"
+                    onClick={onGoToProducts}
+                    className="text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded-md transition flex items-center gap-0.5 cursor-pointer active:scale-95"
+                  >
+                    <span>Buy VIP</span>
+                    <ArrowRight className="w-2.5 h-2.5" />
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* Requirement 2: Account Deposit */}
+            <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
+              hasMadeDeposit ? 'bg-white border-emerald-200' : 'bg-amber-50/60 border-amber-200'
+            }`}>
+              <div className="flex items-center gap-2">
+                <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
+                  hasMadeDeposit ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  <Wallet className="w-3.5 h-3.5" />
+                </div>
+                <div>
+                  <div className="font-semibold text-neutral-800 text-[11px]">Account Deposit</div>
+                  <div className="text-[10px] text-neutral-500">
+                    {hasMadeDeposit ? 'Deposit Verified' : 'Requires at least 1 deposit'}
+                  </div>
+                </div>
+              </div>
+
+              {hasMadeDeposit ? (
+                <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Ready</span>
+                </span>
+              ) : (
+                onGoToRecharge && (
+                  <button
+                    type="button"
+                    onClick={onGoToRecharge}
+                    className="text-[10px] font-bold bg-[#00c269] hover:bg-[#00ad5e] text-white px-2 py-1 rounded-md transition flex items-center gap-0.5 cursor-pointer active:scale-95"
+                  >
+                    <span>Deposit</span>
+                    <ArrowRight className="w-2.5 h-2.5" />
+                  </button>
+                )
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Bank Account Selector (Screenshot 8) */}
@@ -253,64 +365,15 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           </h3>
 
           <ol className="space-y-2 text-xs text-neutral-600 leading-relaxed font-normal">
-            <li>1. Minimum withdrawal amount: ₦{minWithdrawal.toLocaleString()}; maximum withdrawal amount: no limit.</li>
-            <li>2. Withdrawal operating hours are strictly <strong>9:00 AM – 5:00 PM daily</strong>. Requests submitted outside this timeframe will be queued for the next operational window.</li>
-            <li>3. Every withdrawal request is reviewed and audited individually by the Tesla administrative risk and settlement system before bank dispatch.</li>
-            <li>4. {(taxRate * 100).toFixed(0)}% of the withdrawal amount will be deducted for statutory handling and banking fees.</li>
-            <li>5. Multiple withdrawals per day are supported during operational hours.</li>
+            <li>1. <strong>Prerequisites</strong>: You must purchase and activate at least one VIP Power Generator product and make a verified deposit before submitting withdrawal requests.</li>
+            <li>2. Minimum withdrawal amount: ₦{minWithdrawal.toLocaleString()}; maximum withdrawal amount: no limit.</li>
+            <li>3. Withdrawal operating hours are strictly <strong>9:00 AM – 5:00 PM daily</strong>. Requests submitted outside this timeframe will be queued for the next operational window.</li>
+            <li>4. Every withdrawal request is reviewed and audited individually by the Tesla administrative risk and settlement system before bank dispatch.</li>
+            <li>5. {(taxRate * 100).toFixed(0)}% of the withdrawal amount will be deducted for statutory handling and banking fees.</li>
+            <li>6. Multiple withdrawals per day are supported during operational hours once eligibility prerequisites are fulfilled.</li>
           </ol>
         </div>
       </div>
-
-      {/* Fund PIN Modal */}
-      {showPinModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <form
-            onSubmit={handleConfirmPin}
-            className="bg-white w-full max-w-xs rounded-2xl p-5 shadow-2xl space-y-4"
-          >
-            <div className="flex items-center gap-2 border-b pb-2">
-              <Lock className="w-4 h-4 text-emerald-600" />
-              <h3 className="text-sm font-bold text-neutral-900">Enter Fund PIN</h3>
-            </div>
-
-            <p className="text-xs text-neutral-500">
-              Please enter your 6-digit withdrawal fund PIN to authenticate this transaction.
-            </p>
-
-            <input
-              type="password"
-              inputMode="numeric"
-              maxLength={6}
-              value={enteredPin}
-              onChange={(e) => setEnteredPin(e.target.value.replace(/\D/g, ''))}
-              placeholder="••••••"
-              className="w-full bg-neutral-100 border border-neutral-300 rounded-lg p-3 text-center text-lg tracking-widest font-mono focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
-              autoFocus
-              required
-            />
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowPinModal(false);
-                  setEnteredPin('');
-                }}
-                className="flex-1 py-2 rounded-lg border border-neutral-300 text-xs font-semibold text-neutral-700 hover:bg-neutral-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="flex-1 py-2 rounded-lg bg-[#00c269] text-white text-xs font-bold shadow-xs active:scale-95"
-              >
-                Confirm
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
     </div>
   );
 };

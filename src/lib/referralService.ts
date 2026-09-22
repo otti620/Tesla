@@ -2,6 +2,7 @@ import { collection, getDocs, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { UserState, TeamMember, TransactionRecord, PlatformSettings } from '../types';
 import { getLocalAccounts, saveLocalAccounts, LocalAccount } from './authService';
+import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
 
 /**
  * Referral & Multi-tier Team Commission Engine
@@ -19,19 +20,33 @@ export interface CommissionResult {
 }
 
 /**
- * Helper: Find account across local storage and Firestore by inviteCode
+ * Helper: Find account across local storage and Firestore by inviteCode or Phone
  */
 export async function findUserByInviteCode(
   inviteCode: string
 ): Promise<{ userState: UserState; source: 'local' | 'firestore'; keyOrUid: string } | null> {
   const cleanCode = (inviteCode || '').trim().toUpperCase();
   if (!cleanCode) return null;
+  const cleanDigits = cleanNigerianPhoneDigits(cleanCode);
 
-  // 1. Search Local Accounts Registry
+  // 1. Check known master codes
+  if (cleanCode === 'TSLROOT1' || cleanCode === 'P5ZP4S') {
+    const rootSearch = await findUserByInviteCode('7077599057');
+    if (rootSearch) return rootSearch;
+  }
+  if (cleanCode === 'TSLROOT2') {
+    const rootSearch = await findUserByInviteCode('9011711470');
+    if (rootSearch) return rootSearch;
+  }
+
+  // 2. Search Local Accounts Registry
   try {
     const local = getLocalAccounts();
     for (const [key, acc] of Object.entries(local)) {
       if (acc?.userState?.inviteCode?.toUpperCase() === cleanCode) {
+        return { userState: acc.userState, source: 'local', keyOrUid: key };
+      }
+      if (cleanDigits && (cleanNigerianPhoneDigits(acc?.phone || '') === cleanDigits || cleanNigerianPhoneDigits(key) === cleanDigits)) {
         return { userState: acc.userState, source: 'local', keyOrUid: key };
       }
     }
@@ -39,13 +54,30 @@ export async function findUserByInviteCode(
     console.warn('Error reading local accounts for invite code:', err);
   }
 
-  // 2. Search Firestore collection
+  // 3. Search Firestore collection
   try {
     const snap = await getDocs(collection(db, 'users'));
     for (const d of snap.docs) {
       const data = d.data() as UserState;
       if (data?.inviteCode?.toUpperCase() === cleanCode) {
         return { userState: { ...data, id: d.id }, source: 'firestore', keyOrUid: d.id };
+      }
+      if (cleanDigits && (cleanNigerianPhoneDigits(data?.phone || '') === cleanDigits || cleanNigerianPhoneDigits(d.id) === cleanDigits)) {
+        return { userState: { ...data, id: d.id }, source: 'firestore', keyOrUid: d.id };
+      }
+    }
+
+    // Direct doc lookup by code or digits
+    const directDoc = await getDoc(doc(db, 'users', cleanCode));
+    if (directDoc.exists()) {
+      const dData = directDoc.data() as UserState;
+      return { userState: { ...dData, id: directDoc.id }, source: 'firestore', keyOrUid: directDoc.id };
+    }
+    if (cleanDigits) {
+      const directDigitsDoc = await getDoc(doc(db, 'users', cleanDigits));
+      if (directDigitsDoc.exists()) {
+        const dData = directDigitsDoc.data() as UserState;
+        return { userState: { ...dData, id: directDigitsDoc.id }, source: 'firestore', keyOrUid: directDigitsDoc.id };
       }
     }
   } catch (err) {
@@ -62,7 +94,7 @@ export async function persistUserUpdates(
   targetPhone: string,
   updater: (prev: UserState) => UserState
 ): Promise<UserState | null> {
-  const digits = targetPhone.replace(/\D/g, '').slice(-10);
+  const digits = cleanNigerianPhoneDigits(targetPhone);
   let updatedState: UserState | null = null;
 
   // 1. Update Local Accounts Registry
@@ -71,7 +103,7 @@ export async function persistUserUpdates(
     let foundKey = local[digits] ? digits : null;
     if (!foundKey) {
       for (const [k, acc] of Object.entries(local)) {
-        if (acc?.phone?.replace(/\D/g, '').slice(-10) === digits) {
+        if (cleanNigerianPhoneDigits(acc?.phone || '') === digits) {
           foundKey = k;
           break;
         }
@@ -88,22 +120,50 @@ export async function persistUserUpdates(
     console.warn('Could not persist user update locally:', err);
   }
 
-  // 2. Update Firestore document
+  // 2. Update Firestore documents (synchronize both UID doc and cleanDigits doc)
   try {
     const snap = await getDocs(collection(db, 'users'));
+    let matchedAny = false;
     for (const d of snap.docs) {
       const data = d.data() as UserState;
-      const dDigits = (data.phone || '').replace(/\D/g, '').slice(-10);
-      if (dDigits === digits || d.id === digits || d.id === updatedState?.id) {
+      const dDigits = cleanNigerianPhoneDigits(data.phone || '');
+      if (dDigits === digits || d.id === digits || (updatedState?.id && d.id === updatedState.id)) {
         const nextData = updater(data);
-        await setDoc(doc(db, 'users', d.id), nextData, { merge: true });
+        await setDoc(doc(db, 'users', d.id), { ...nextData, updatedAt: Date.now() }, { merge: true });
         if (!updatedState) updatedState = nextData;
-        break;
+        matchedAny = true;
+      }
+    }
+    if (digits) {
+      // Also ensure direct digits doc is updated/mirrored
+      const directRef = doc(db, 'users', digits);
+      const directSnap = await getDoc(directRef);
+      if (directSnap.exists()) {
+        const nextData = updater(directSnap.data() as UserState);
+        await setDoc(directRef, { ...nextData, updatedAt: Date.now() }, { merge: true });
+        if (!updatedState) updatedState = nextData;
+      } else if (updatedState) {
+        await setDoc(directRef, { ...updatedState, updatedAt: Date.now() }, { merge: true }).catch(() => {});
       }
     }
   } catch (err) {
     console.warn('Could not persist user update to Firestore:', err);
   }
+
+  // 3. Update active session in localStorage if target matches currently logged-in user
+  try {
+    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    if (sessionRaw) {
+      const sessionUser = JSON.parse(sessionRaw) as UserState;
+      const sessionDigits = cleanNigerianPhoneDigits(sessionUser.phone || '');
+      if (sessionDigits === digits) {
+        const nextSessionState = updater(sessionUser);
+        localStorage.setItem('tesla_app_state_v2', JSON.stringify(nextSessionState));
+        window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: nextSessionState }));
+        window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: nextSessionState.balance } }));
+      }
+    }
+  } catch {}
 
   return updatedState;
 }
@@ -121,6 +181,7 @@ export async function recordNewReferralRegistration(
   if (!cleanInviter) return;
 
   const today = new Date().toISOString().split('T')[0];
+  const newDigits = cleanNigerianPhoneDigits(newUserPhone);
 
   try {
     // 1. Find Level 1 Inviter
@@ -130,7 +191,9 @@ export async function recordNewReferralRegistration(
     // Add new member to Level 1 Inviter's team
     await persistUserUpdates(lvl1.userState.phone, (prev) => {
       const existing = prev.teamMembers || [];
-      if (existing.some((m) => m.phone === newUserPhone)) return prev;
+      if (existing.some((m) => cleanNigerianPhoneDigits(m.phone) === newDigits || m.inviteCode === newUserInviteCode)) {
+        return prev;
+      }
 
       const newMember: TeamMember = {
         id: `tm_l1_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -158,7 +221,9 @@ export async function recordNewReferralRegistration(
 
     await persistUserUpdates(lvl2.userState.phone, (prev) => {
       const existing = prev.teamMembers || [];
-      if (existing.some((m) => m.phone === newUserPhone)) return prev;
+      if (existing.some((m) => cleanNigerianPhoneDigits(m.phone) === newDigits || m.inviteCode === newUserInviteCode)) {
+        return prev;
+      }
 
       const newMember: TeamMember = {
         id: `tm_l2_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -186,7 +251,9 @@ export async function recordNewReferralRegistration(
 
     await persistUserUpdates(lvl3.userState.phone, (prev) => {
       const existing = prev.teamMembers || [];
-      if (existing.some((m) => m.phone === newUserPhone)) return prev;
+      if (existing.some((m) => cleanNigerianPhoneDigits(m.phone) === newDigits || m.inviteCode === newUserInviteCode)) {
+        return prev;
+      }
 
       const newMember: TeamMember = {
         id: `tm_l3_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -211,7 +278,7 @@ export async function recordNewReferralRegistration(
 
 /**
  * Distributes real team commission to uplines when a member purchases a VIP fleet node.
- * Level 1 receives level1CommissionPct (default 35%)
+ * Level 1 receives level1CommissionPct (default 25%)
  * Level 2 receives level2CommissionPct (default 1%)
  * Level 3 receives level3CommissionPct (default 1%)
  */
@@ -222,17 +289,33 @@ export async function distributeProductPurchaseCommissions(params: {
   amount: number;
   productTitle: string;
   platformSettings: PlatformSettings;
+  orderOrInstanceId?: string;
 }): Promise<CommissionResult[]> {
-  const { buyerPhone, buyerInviteCode, buyerInvitedBy, amount, productTitle, platformSettings } =
+  const { buyerPhone, buyerInviteCode, buyerInvitedBy, amount, productTitle, platformSettings, orderOrInstanceId } =
     params;
-  const cleanInvitedBy = (buyerInvitedBy || '').trim().toUpperCase();
-  if (!cleanInvitedBy) return [];
+  
+  let cleanInvitedBy = (buyerInvitedBy || '').trim().toUpperCase();
+
+  // If buyerInvitedBy is missing, auto-discover from user document in Firestore / Local Accounts
+  if (!cleanInvitedBy) {
+    const buyerAccount = await findUserByInviteCode(buyerInviteCode || buyerPhone);
+    if (buyerAccount?.userState?.invitedBy) {
+      cleanInvitedBy = buyerAccount.userState.invitedBy.trim().toUpperCase();
+    }
+  }
+
+  if (!cleanInvitedBy) {
+    console.log(`[ReferralEngine] No inviter found for buyer ${buyerPhone}; skipping upline commission.`);
+    return [];
+  }
 
   const results: CommissionResult[] = [];
   const now = Date.now();
   const today = new Date().toISOString().split('T')[0];
+  const buyerCleanDigits = cleanNigerianPhoneDigits(buyerPhone);
+  const uniqueIdSuffix = orderOrInstanceId || `${buyerCleanDigits}_${amount}_${productTitle.replace(/\s+/g, '_')}_${now}`;
 
-  const l1Pct = Number(platformSettings.level1CommissionPct) ?? 35;
+  const l1Pct = Number(platformSettings.level1CommissionPct) ?? 25;
   const l2Pct = Number(platformSettings.level2CommissionPct) ?? 1;
   const l3Pct = Number(platformSettings.level3CommissionPct) ?? 1;
 
@@ -241,27 +324,36 @@ export async function distributeProductPurchaseCommissions(params: {
     // LEVEL 1 COMMISSION
     // -------------------------------------------------------------
     const lvl1 = await findUserByInviteCode(cleanInvitedBy);
-    if (lvl1 && lvl1.userState.phone !== buyerPhone) {
+    if (lvl1 && cleanNigerianPhoneDigits(lvl1.userState.phone) !== buyerCleanDigits) {
       const comm1 = Math.round(amount * (l1Pct / 100));
+      const recId1 = `comm_l1_${uniqueIdSuffix}`;
       if (comm1 > 0) {
         const rec1: TransactionRecord = {
-          id: `comm_l1_${now}_${Math.random().toString(36).substring(2, 6)}`,
+          id: recId1,
           type: 'commission',
           title: 'Level 1 Referral Commission',
           amount: comm1,
           status: 'success',
           timestamp: now,
-          details: `${l1Pct}% direct affiliate bonus from ${buyerPhone}'s activation of ${productTitle}`,
+          details: `${l1Pct}% direct affiliate bonus from ${buyerPhone}'s activation of ${productTitle} (₦${amount.toLocaleString()})`,
         };
 
         await persistUserUpdates(lvl1.userState.phone, (prev) => {
+          // Check idempotency: If this commission has already been credited to this upline, skip!
+          if (prev.records?.some((r) => r.id === recId1)) {
+            return prev;
+          }
+
           const members = [...(prev.teamMembers || [])];
-          const mIdx = members.findIndex((m) => m.phone === buyerPhone);
+          const mIdx = members.findIndex(
+            (m) => cleanNigerianPhoneDigits(m.phone) === buyerCleanDigits || (buyerInviteCode && m.inviteCode === buyerInviteCode)
+          );
           if (mIdx >= 0) {
             members[mIdx] = {
               ...members[mIdx],
               invested: (members[mIdx].invested || 0) + amount,
               commission: (members[mIdx].commission || 0) + comm1,
+              status: 'active',
             };
           } else {
             members.unshift({
@@ -279,6 +371,7 @@ export async function distributeProductPurchaseCommissions(params: {
           return {
             ...prev,
             balance: (prev.balance || 0) + comm1,
+            cumulativeIncome: (prev.cumulativeIncome || 0) + comm1,
             teamMembers: members,
             records: [rec1, ...(prev.records || [])],
           };
@@ -298,30 +391,48 @@ export async function distributeProductPurchaseCommissions(params: {
       // -------------------------------------------------------------
       // LEVEL 2 COMMISSION
       // -------------------------------------------------------------
-      const lvl1InvitedBy = lvl1.userState.invitedBy;
+      let lvl1InvitedBy = lvl1.userState.invitedBy;
+      if (!lvl1InvitedBy) {
+        // Double check upline 1's cloud record
+        const lvl1Fresh = await findUserByInviteCode(lvl1.userState.inviteCode || lvl1.userState.phone);
+        lvl1InvitedBy = lvl1Fresh?.userState?.invitedBy;
+      }
+
       if (lvl1InvitedBy) {
         const lvl2 = await findUserByInviteCode(lvl1InvitedBy);
-        if (lvl2 && lvl2.userState.phone !== buyerPhone) {
+        if (
+          lvl2 &&
+          cleanNigerianPhoneDigits(lvl2.userState.phone) !== buyerCleanDigits &&
+          cleanNigerianPhoneDigits(lvl2.userState.phone) !== cleanNigerianPhoneDigits(lvl1.userState.phone)
+        ) {
           const comm2 = Math.round(amount * (l2Pct / 100));
+          const recId2 = `comm_l2_${uniqueIdSuffix}`;
           if (comm2 > 0) {
             const rec2: TransactionRecord = {
-              id: `comm_l2_${now}_${Math.random().toString(36).substring(2, 6)}`,
+              id: recId2,
               type: 'commission',
               title: 'Level 2 Team Commission',
               amount: comm2,
               status: 'success',
               timestamp: now,
-              details: `${l2Pct}% team affiliate bonus from ${buyerPhone}'s activation of ${productTitle}`,
+              details: `${l2Pct}% team affiliate bonus from ${buyerPhone}'s activation of ${productTitle} (₦${amount.toLocaleString()})`,
             };
 
             await persistUserUpdates(lvl2.userState.phone, (prev) => {
+              if (prev.records?.some((r) => r.id === recId2)) {
+                return prev;
+              }
+
               const members = [...(prev.teamMembers || [])];
-              const mIdx = members.findIndex((m) => m.phone === buyerPhone);
+              const mIdx = members.findIndex(
+                (m) => cleanNigerianPhoneDigits(m.phone) === buyerCleanDigits || (buyerInviteCode && m.inviteCode === buyerInviteCode)
+              );
               if (mIdx >= 0) {
                 members[mIdx] = {
                   ...members[mIdx],
                   invested: (members[mIdx].invested || 0) + amount,
                   commission: (members[mIdx].commission || 0) + comm2,
+                  status: 'active',
                 };
               } else {
                 members.unshift({
@@ -339,6 +450,7 @@ export async function distributeProductPurchaseCommissions(params: {
               return {
                 ...prev,
                 balance: (prev.balance || 0) + comm2,
+                cumulativeIncome: (prev.cumulativeIncome || 0) + comm2,
                 teamMembers: members,
                 records: [rec2, ...(prev.records || [])],
               };
@@ -358,30 +470,48 @@ export async function distributeProductPurchaseCommissions(params: {
           // -------------------------------------------------------------
           // LEVEL 3 COMMISSION
           // -------------------------------------------------------------
-          const lvl2InvitedBy = lvl2.userState.invitedBy;
+          let lvl2InvitedBy = lvl2.userState.invitedBy;
+          if (!lvl2InvitedBy) {
+            const lvl2Fresh = await findUserByInviteCode(lvl2.userState.inviteCode || lvl2.userState.phone);
+            lvl2InvitedBy = lvl2Fresh?.userState?.invitedBy;
+          }
+
           if (lvl2InvitedBy) {
             const lvl3 = await findUserByInviteCode(lvl2InvitedBy);
-            if (lvl3 && lvl3.userState.phone !== buyerPhone) {
+            if (
+              lvl3 &&
+              cleanNigerianPhoneDigits(lvl3.userState.phone) !== buyerCleanDigits &&
+              cleanNigerianPhoneDigits(lvl3.userState.phone) !== cleanNigerianPhoneDigits(lvl1.userState.phone) &&
+              cleanNigerianPhoneDigits(lvl3.userState.phone) !== cleanNigerianPhoneDigits(lvl2.userState.phone)
+            ) {
               const comm3 = Math.round(amount * (l3Pct / 100));
+              const recId3 = `comm_l3_${uniqueIdSuffix}`;
               if (comm3 > 0) {
                 const rec3: TransactionRecord = {
-                  id: `comm_l3_${now}_${Math.random().toString(36).substring(2, 6)}`,
+                  id: recId3,
                   type: 'commission',
                   title: 'Level 3 Team Commission',
                   amount: comm3,
                   status: 'success',
                   timestamp: now,
-                  details: `${l3Pct}% team affiliate bonus from ${buyerPhone}'s activation of ${productTitle}`,
+                  details: `${l3Pct}% team affiliate bonus from ${buyerPhone}'s activation of ${productTitle} (₦${amount.toLocaleString()})`,
                 };
 
                 await persistUserUpdates(lvl3.userState.phone, (prev) => {
+                  if (prev.records?.some((r) => r.id === recId3)) {
+                    return prev;
+                  }
+
                   const members = [...(prev.teamMembers || [])];
-                  const mIdx = members.findIndex((m) => m.phone === buyerPhone);
+                  const mIdx = members.findIndex(
+                    (m) => cleanNigerianPhoneDigits(m.phone) === buyerCleanDigits || (buyerInviteCode && m.inviteCode === buyerInviteCode)
+                  );
                   if (mIdx >= 0) {
                     members[mIdx] = {
                       ...members[mIdx],
                       invested: (members[mIdx].invested || 0) + amount,
                       commission: (members[mIdx].commission || 0) + comm3,
+                      status: 'active',
                     };
                   } else {
                     members.unshift({
@@ -399,6 +529,7 @@ export async function distributeProductPurchaseCommissions(params: {
                   return {
                     ...prev,
                     balance: (prev.balance || 0) + comm3,
+                    cumulativeIncome: (prev.cumulativeIncome || 0) + comm3,
                     teamMembers: members,
                     records: [rec3, ...(prev.records || [])],
                   };

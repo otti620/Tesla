@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, Zap, Clock, ShieldCheck, ArrowRight } from 'lucide-react';
+import { ChevronLeft, Zap, Clock, ShieldCheck, ArrowRight, History, Calendar, CheckCircle2 } from 'lucide-react';
 import { UserState } from '../types';
+import { calculateProductMaturity, formatTimeUntilNigerianMidnight } from '../utils/nigerianTime';
 
 interface MyStoreScreenProps {
   user: UserState;
@@ -39,21 +40,23 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
   const totalDaily = products.reduce((sum, p) => sum + p.dailyIncome, 0);
   const totalMined = products.reduce((sum, p) => sum + p.dailyIncome * p.daysActive, 0);
 
-  const MS_24_HOURS = 24 * 60 * 60 * 1000;
+  // Filter transaction records for revenue collection history (specifically type === 'income')
+  const incomeRecords = (user.records || [])
+    .filter((r) => r.type === 'income')
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-  // Check if any product has mature 24-hour yield ready to collect
+  const totalCollectedIncome = incomeRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
+
+  // Check if any product has mature daily yield ready to collect (after 12 midnight Nigerian Time)
   let totalClaimableYield = 0;
   products.forEach((p) => {
-    if (p.daysActive >= p.validityDays) return;
-    const lastDrop = p.lastClaimDate || p.purchaseDate || now;
-    const elapsed = now - lastDrop;
-    const cycles = Math.floor(elapsed / MS_24_HOURS);
-    const maxCycles = p.validityDays - p.daysActive;
-    const mature = Math.min(cycles, maxCycles);
-    if (mature >= 1) {
-      totalClaimableYield += mature * p.dailyIncome;
+    const maturity = calculateProductMaturity(p, now);
+    if (maturity.isMature) {
+      totalClaimableYield += maturity.claimableYield;
     }
   });
+
+  const midnightCountdown = formatTimeUntilNigerianMidnight(now);
 
   return (
     <div className="min-h-screen pb-16 bg-neutral-100 text-neutral-900">
@@ -102,9 +105,9 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
         </div>
       </div>
 
-      <div className="p-3 space-y-3">
+      <div className="p-3 space-y-4">
         {products.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center shadow-xs border border-neutral-200 mt-4 space-y-3">
+          <div className="bg-white rounded-2xl p-8 text-center shadow-xs border border-neutral-200 mt-2 space-y-3">
             <div className="w-16 h-16 rounded-full bg-emerald-50 text-[#00c269] flex items-center justify-center mx-auto">
               <Zap className="w-8 h-8" />
             </div>
@@ -128,11 +131,13 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
               </h2>
 
               <button
-                onClick={() => handleCollect()}
-                className={`text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xs active:scale-95 transition flex items-center gap-1 cursor-pointer ${
+                type="button"
+                onClick={() => totalClaimableYield > 0 && handleCollect()}
+                disabled={totalClaimableYield <= 0}
+                className={`text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xs transition flex items-center gap-1 ${
                   totalClaimableYield > 0
-                    ? 'text-white bg-emerald-600 hover:bg-emerald-500 animate-pulse'
-                    : 'text-neutral-300 bg-neutral-800 hover:bg-neutral-700'
+                    ? 'text-white bg-emerald-600 hover:bg-emerald-500 animate-pulse cursor-pointer'
+                    : 'text-neutral-400 bg-neutral-800 cursor-not-allowed'
                 }`}
               >
                 {totalClaimableYield > 0 ? (
@@ -143,7 +148,7 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
                 ) : (
                   <>
                     <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>24h Settle Status</span>
+                    <span>Next Drop: 12:00 AM WAT</span>
                   </>
                 )}
               </button>
@@ -151,21 +156,7 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
 
             <div className="space-y-3">
               {products.map((item) => {
-                const progressPct = Math.min(100, (item.daysActive / item.validityDays) * 100);
-                const currentIncome = item.dailyIncome * item.daysActive;
-
-                const lastDrop = item.lastClaimDate || item.purchaseDate || now;
-                const elapsed = now - lastDrop;
-                const cycles = Math.floor(elapsed / MS_24_HOURS);
-                const maxCycles = item.validityDays - item.daysActive;
-                const matureCycles = Math.min(cycles, maxCycles);
-                const isItemMatured = matureCycles >= 1;
-                const itemClaimableYield = matureCycles * item.dailyIncome;
-
-                const remainingMs = Math.max(0, MS_24_HOURS - (elapsed % MS_24_HOURS));
-                const hoursLeft = Math.floor(remainingMs / (1000 * 60 * 60));
-                const minutesLeft = Math.floor((remainingMs % (1000 * 60 * 60)) / (1000 * 60));
-                const secondsLeft = Math.floor((remainingMs % (1000 * 60)) / 1000);
+                const maturity = calculateProductMaturity(item, now);
 
                 return (
                   <div
@@ -191,7 +182,7 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
                           </span>
                           <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-semibold">
                             <span className="w-2 h-2 rounded-full bg-[#00c269] animate-ping inline-block" />
-                            Online &amp; Generating
+                            {maturity.isExpired ? 'Completed' : 'Online & Generating'}
                           </span>
                         </div>
                         <h3 className="text-sm font-bold text-neutral-900 mt-1 truncate">
@@ -201,22 +192,22 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
 
                       <div className="text-right shrink-0">
                         <div className="text-xs font-bold text-[#00c269]">
-                          +₦ {item.dailyIncome.toLocaleString()}/24h
+                          +₦ {item.dailyIncome.toLocaleString()}/day
                         </div>
-                        <span className="text-[10px] text-neutral-400 font-medium">24-Hour Cycle</span>
+                        <span className="text-[10px] text-neutral-400 font-medium">Daily Midnight Drop</span>
                       </div>
                     </div>
 
                     {/* Progress */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-[11px] text-neutral-500 font-medium">
-                        <span>Runtime: Day {item.daysActive} of {item.validityDays}</span>
-                        <span>{progressPct.toFixed(0)}% completed</span>
+                        <span>Runtime: Day {item.daysActive || 0} of {item.validityDays}</span>
+                        <span>{maturity.progressPct.toFixed(0)}% completed</span>
                       </div>
                       <div className="w-full bg-neutral-100 h-2 rounded-full overflow-hidden">
                         <div
                           className="bg-[#00c269] h-full rounded-full transition-all duration-500"
-                          style={{ width: `${progressPct}%` }}
+                          style={{ width: `${maturity.progressPct}%` }}
                         />
                       </div>
                     </div>
@@ -229,37 +220,41 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
                       </div>
                       <div>
                         <span className="text-[10px] text-neutral-400 block">Harvested</span>
-                        <span className="font-bold text-emerald-600">₦ {currentIncome.toLocaleString()}</span>
+                        <span className="font-bold text-emerald-600">₦ {maturity.currentIncome.toLocaleString()}</span>
                       </div>
                       <div>
                         <span className="text-[10px] text-neutral-400 block">Remaining</span>
-                        <span className="font-bold text-neutral-700">{item.validityDays - item.daysActive} days</span>
+                        <span className="font-bold text-neutral-700">{Math.max(0, item.validityDays - (item.daysActive || 0))} days</span>
                       </div>
                     </div>
 
-                    {/* 24-Hour Drop Action & Countdown */}
+                    {/* Midnight Drop Action & Countdown */}
                     <div className="pt-1">
-                      {isItemMatured ? (
+                      {maturity.isMature ? (
                         <button
+                          type="button"
                           onClick={() => handleCollect(item.instanceId)}
                           className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold active:scale-98 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md animate-pulse"
                         >
                           <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                          <span>Claim 24-Hour Yield (+₦ {itemClaimableYield.toLocaleString()})</span>
+                          <span>Claim Daily Yield (+₦ {maturity.claimableYield.toLocaleString()})</span>
                         </button>
+                      ) : maturity.isExpired ? (
+                        <div className="w-full py-2 bg-neutral-100 text-neutral-500 rounded-lg text-xs font-medium text-center border border-neutral-200">
+                          Fleet Contract Completed ({item.validityDays} Days)
+                        </div>
                       ) : (
-                        <button
-                          onClick={() => handleCollect(item.instanceId)}
-                          className="w-full py-2 bg-neutral-900 hover:bg-neutral-800 text-white rounded-lg text-xs font-medium active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer border border-neutral-800"
+                        <div
+                          className="w-full py-2 bg-neutral-900 text-white rounded-lg text-xs font-medium flex items-center justify-center gap-2 border border-neutral-800 select-none"
                         >
                           <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                           <span>
-                            Next 24h Yield Drop in:{' '}
+                            Next Income Drop (12:00 AM WAT) in:{' '}
                             <strong className="font-mono text-emerald-300 font-semibold">
-                              {String(hoursLeft).padStart(2, '0')}h {String(minutesLeft).padStart(2, '0')}m {String(secondsLeft).padStart(2, '0')}s
+                              {String(maturity.hoursLeft).padStart(2, '0')}h {String(maturity.minutesLeft).padStart(2, '0')}m {String(maturity.secondsLeft).padStart(2, '0')}s
                             </strong>
                           </span>
-                        </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -268,6 +263,72 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
             </div>
           </>
         )}
+
+        {/* Revenue Collection History (Filtered for type === 'income') */}
+        <div className="pt-2 space-y-2.5">
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-1.5">
+              <History className="w-4 h-4 text-emerald-600" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700">
+                Revenue Collection History ({incomeRecords.length})
+              </h2>
+            </div>
+            {incomeRecords.length > 0 && (
+              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                Total: +₦ {totalCollectedIncome.toLocaleString()}
+              </span>
+            )}
+          </div>
+
+          {incomeRecords.length === 0 ? (
+            <div className="bg-white rounded-xl p-5 text-center shadow-xs border border-neutral-200 space-y-1.5">
+              <Clock className="w-6 h-6 mx-auto text-neutral-300" />
+              <p className="text-xs font-semibold text-neutral-700">No revenue collections yet</p>
+              <p className="text-[11px] text-neutral-400 max-w-xs mx-auto">
+                Daily energy earnings claimed at 12:00 AM midnight (WAT) will automatically appear in this history log.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {incomeRecords.map((record) => (
+                <div
+                  key={record.id}
+                  className="bg-white rounded-xl p-3.5 shadow-xs border border-neutral-200 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
+                      <Zap className="w-4 h-4 fill-emerald-500 text-emerald-600" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-neutral-900">
+                        {record.title || 'Daily Energy Generation Income'}
+                      </div>
+                      <div className="text-[11px] text-neutral-400 flex items-center gap-1 mt-0.5">
+                        <Calendar className="w-3 h-3 text-neutral-400" />
+                        <span>{new Date(record.timestamp).toLocaleString()}</span>
+                      </div>
+                      {record.details && (
+                        <div className="text-[10px] text-neutral-500 font-mono mt-0.5">
+                          {record.details}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-extrabold text-[#00c269]">
+                      +₦ {record.amount.toLocaleString()}
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 mt-1">
+                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                      Settled
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

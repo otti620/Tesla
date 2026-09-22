@@ -26,7 +26,7 @@ export const TeamDetailsScreen: React.FC<TeamDetailsScreenProps> = ({
     m.phone.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const l1Rate = platformSettings.level1CommissionPct ?? 35;
+  const l1Rate = platformSettings.level1CommissionPct ?? 25;
   const l2Rate = platformSettings.level2CommissionPct ?? 1;
   const l3Rate = platformSettings.level3CommissionPct ?? 1;
 

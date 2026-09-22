@@ -17,7 +17,8 @@ import {
   Share2,
   Copy,
   Check,
-  Sparkles
+  Sparkles,
+  Flame
 } from 'lucide-react';
 import { UserState } from '../types';
 import { TeslaLogo } from './TeslaLogo';
@@ -30,6 +31,8 @@ interface MineScreenProps {
   onOpenGifts: () => void;
   onSignOut: () => void;
   onGoToProducts: () => void;
+  onGoToPromoters?: () => void;
+  onOpenFlyerModal?: () => void;
 }
 
 export const MineScreen: React.FC<MineScreenProps> = ({
@@ -38,6 +41,8 @@ export const MineScreen: React.FC<MineScreenProps> = ({
   onOpenGifts,
   onSignOut,
   onGoToProducts,
+  onGoToPromoters,
+  onOpenFlyerModal,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [shareMsg, setShareMsg] = useState<string | null>(null);
@@ -169,7 +174,7 @@ export const MineScreen: React.FC<MineScreenProps> = ({
                   Dynamic Referral Program
                 </h4>
                 <p className="text-[10px] text-neutral-300">
-                  Earn 35% instant commission on invitee VIP purchases
+                  Earn 25% instant commission on invitee VIP purchases
                 </p>
               </div>
             </div>
@@ -204,6 +209,33 @@ export const MineScreen: React.FC<MineScreenProps> = ({
               {shareMsg}
             </div>
           )}
+
+          {/* Promoter Mega Bounty Shortcut */}
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <button
+              onClick={onGoToPromoters}
+              className="py-2 px-2.5 bg-gradient-to-r from-amber-500/20 via-rose-500/20 to-red-500/20 hover:from-amber-500/30 hover:to-red-500/30 border border-rose-500/30 rounded-lg flex items-center justify-between transition cursor-pointer text-left"
+            >
+              <div className="flex items-center gap-1.5 truncate">
+                <Flame className="w-3.5 h-3.5 text-rose-400 shrink-0 animate-pulse" />
+                <span className="text-[11px] font-bold text-white truncate">Promoter ₦3.5M</span>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+            </button>
+
+            {onOpenFlyerModal && (
+              <button
+                onClick={onOpenFlyerModal}
+                className="py-2 px-2.5 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-lg flex items-center justify-between transition cursor-pointer text-left"
+              >
+                <div className="flex items-center gap-1.5 truncate">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="text-[11px] font-bold text-white truncate">Promo Flyer HD</span>
+                </div>
+                <ChevronRight className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Store Banner (Screenshot 12) */}

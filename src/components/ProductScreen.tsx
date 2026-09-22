@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { INITIAL_PRODUCTS } from '../data/initialData';
 import { VIPProduct, UserState } from '../types';
 import { CheckCircle2, AlertCircle, ShoppingBag, TrendingUp, Clock, Zap } from 'lucide-react';
+import { calculateProductMaturity, formatTimeUntilNigerianMidnight } from '../utils/nigerianTime';
 
 interface ProductScreenProps {
   user: UserState;
@@ -36,31 +37,16 @@ export const ProductScreen: React.FC<ProductScreenProps> = ({
     0
   );
 
-  const MS_24_HOURS = 24 * 60 * 60 * 1000;
+  // Check if any product has mature daily yield ready to collect (after 12 midnight Nigerian Time)
   let claimableIncome = 0;
-  let minRemainingMs = Infinity;
-
   user.purchasedProducts.forEach((p) => {
-    if (p.daysActive >= p.validityDays) return;
-    const lastDrop = p.lastClaimDate || p.purchaseDate || now;
-    const elapsed = now - lastDrop;
-    const cycles = Math.floor(elapsed / MS_24_HOURS);
-    const maxCycles = p.validityDays - p.daysActive;
-    const mature = Math.min(cycles, maxCycles);
-
-    if (mature >= 1) {
-      claimableIncome += mature * p.dailyIncome;
-    } else {
-      const remaining = Math.max(0, MS_24_HOURS - (elapsed % MS_24_HOURS));
-      if (remaining < minRemainingMs) {
-        minRemainingMs = remaining;
-      }
+    const maturity = calculateProductMaturity(p, now);
+    if (maturity.isMature) {
+      claimableIncome += maturity.claimableYield;
     }
   });
 
-  const hoursRemaining = minRemainingMs === Infinity ? 24 : Math.floor(minRemainingMs / (1000 * 60 * 60));
-  const minutesRemaining = minRemainingMs === Infinity ? 0 : Math.floor((minRemainingMs % (1000 * 60 * 60)) / (1000 * 60));
-  const secondsRemaining = minRemainingMs === Infinity ? 0 : Math.floor((minRemainingMs % (1000 * 60)) / 1000);
+  const midnightCountdown = formatTimeUntilNigerianMidnight(now);
 
   const handleBuyClick = (product: VIPProduct) => {
     if (product.status !== 'available') return;
@@ -130,25 +116,23 @@ export const ProductScreen: React.FC<ProductScreenProps> = ({
           <div className="mt-2">
             {claimableIncome > 0 ? (
               <button
+                type="button"
                 onClick={onCollectRevenue}
                 className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow-md active:scale-98 transition flex items-center justify-center gap-1.5 cursor-pointer animate-pulse"
               >
                 <Zap className="w-4 h-4 fill-amber-300 text-amber-300" />
-                <span>Claim 24-Hour Income (+₦ {claimableIncome.toLocaleString()})</span>
+                <span>Claim Daily Income (+₦ {claimableIncome.toLocaleString()})</span>
               </button>
             ) : (
-              <button
-                onClick={onCollectRevenue}
-                className="w-full py-2 bg-neutral-900/90 hover:bg-neutral-800 text-white text-xs font-medium rounded-lg shadow-2xs border border-emerald-500/30 active:scale-98 transition flex items-center justify-center gap-2 cursor-pointer"
-              >
+              <div className="w-full py-2 bg-neutral-900 text-white text-xs font-medium rounded-lg shadow-2xs border border-neutral-800 flex items-center justify-center gap-2 select-none">
                 <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 <span>
-                  Next 24h Income Drop in:{' '}
+                  Next Income Drop (12:00 AM WAT) in:{' '}
                   <strong className="font-mono text-emerald-300 font-semibold">
-                    {String(hoursRemaining).padStart(2, '0')}h {String(minutesRemaining).padStart(2, '0')}m {String(secondsRemaining).padStart(2, '0')}s
+                    {midnightCountdown.formattedString}
                   </strong>
                 </span>
-              </button>
+              </div>
             )}
           </div>
         )}

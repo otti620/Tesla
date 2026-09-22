@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronDown, CheckCircle2, AlertCircle } from 'lucide-react';
 import { NIGERIAN_BANKS } from '../data/initialData';
 import { BankAccount } from '../types';
@@ -19,6 +19,14 @@ export const AddBankScreen: React.FC<AddBankScreenProps> = ({
   const [accountNumber, setAccountNumber] = useState(currentBank?.accountNumber || '');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    if (currentBank) {
+      if (currentBank.bankName) setBankName(currentBank.bankName);
+      if (currentBank.accountName) setName(currentBank.accountName);
+      if (currentBank.accountNumber) setAccountNumber(currentBank.accountNumber);
+    }
+  }, [currentBank]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

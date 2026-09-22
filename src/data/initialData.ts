@@ -134,56 +134,36 @@ export const INITIAL_PRODUCTS: VIPProduct[] = [
   }
 ];
 
-export const INITIAL_GIFT_CODES: GiftCode[] = [
-  {
-    code: 'TESLA2026',
-    amount: 1000,
-    maxUses: 1000,
-    usedCount: 142,
-    description: 'Special Community Welcome Bonus',
-    active: true,
-  },
-  {
-    code: 'TESLABONUS',
-    amount: 2500,
-    maxUses: 500,
-    usedCount: 88,
-    description: 'Exclusive VIP Promotional Bonus',
-    active: true,
-  },
-  {
-    code: 'CYBERTRUCK',
-    amount: 5000,
-    maxUses: 200,
-    usedCount: 37,
-    description: 'Foundation Series Launch Voucher',
-    active: true,
-  }
-];
+export const INITIAL_GIFT_CODES: GiftCode[] = [];
 
 export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
   signupBonus: 1500,
   dailyCheckInBonus: 10,
   withdrawalTaxRate: 0.18,
-  minWithdrawal: 2000,
-  telegramLink: 'https://t.me/tesla',
-  announcementNotice: 'Welcome to Tesla Clean Energy Fleet. Withdrawals are processed daily from 9:00 AM to 5:00 PM. Each withdrawal request undergoes administrative review and instant bank dispatch.',
-  level1CommissionPct: 35,
+  minWithdrawal: 800,
+  telegramLink: 'https://t.me/teslainvestment456',
+  telegramGroupLink: 'https://t.me/teslainvestment456',
+  customerServiceManagerLink: 'https://t.me/sallyservice4',
+  customerServiceUsername: 'sallyservice4',
+  announcementNotice: 'Welcome to Tesla Clean Energy Fleet. Join our official Telegram Group (t.me/teslainvestment456) for daily giveaways and VIP community updates. For member support, reach our Customer Service Manager Sally directly on Telegram (t.me/sallyservice4).',
+  level1CommissionPct: 25,
   level2CommissionPct: 1,
   level3CommissionPct: 1,
   withdrawalStartHour: 9,
   withdrawalEndHour: 17,
   allowAdminBypassHours: false,
+  depositBankName: 'CARBON',
+  depositAccountNo: '1581957640',
+  depositAccountName: 'LEVIATHAN HYPERMARKET',
 };
 
-export const MOCK_TICKERS = [
-  '******1245 Recharge ₦100,000',
-  '******9832 Withdraw ₦25,000',
-  '******4412 Recharge ₦5,000',
-  '******7890 Withdraw ₦14,200',
-  '******3319 Recharge ₦40,000',
-  '******6621 Withdraw ₦50,000',
-  '******8721 Withdraw ₦10,000',
-  '******5514 Recharge ₦10,000',
-  '******9081 Withdraw ₦4,500'
+export const PLATFORM_ANNOUNCEMENTS = [
+  'Welcome to Tesla Clean Energy — ₦1,500 Welcome Bonus credited upon registration',
+  'Official Telegram Group: Join t.me/teslainvestment456 for exclusive bonuses and events',
+  'Customer Support: Reach Customer Service Manager Sally at t.me/sallyservice4',
+  'Official Withdrawal Window: 9:00 AM – 5:00 PM daily with instant bank settlement',
+  'Affiliate Referral Network: Earn up to 25% instant commission on team fleet activations',
 ];
+
+export const PLATFORM_TICKERS = PLATFORM_ANNOUNCEMENTS;
+export const MOCK_TICKERS = PLATFORM_TICKERS; // Backwards-compatible export
