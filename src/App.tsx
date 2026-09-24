@@ -64,6 +64,7 @@ import {
 import { cleanNigerianPhoneDigits } from './utils/adminAuth';
 import { extractReferralCodeFromUrl } from './utils/referral';
 import { normalizePurchasedProducts, normalizeProductCatalog, getCanonicalProduct, mergePurchasedProducts } from './utils/productUtils';
+import { checkWithdrawalEligibility } from './utils/withdrawalEligibility';
 import { 
   distributeProductPurchaseCommissions, 
   recordNewReferralRegistration 
@@ -846,12 +847,9 @@ export default function App() {
 
   // Withdraw Handler
   const handleSuccessWithdraw = async (amount: number, fee: number) => {
-    const hasPurchasedProduct =
-      (user.purchasedProducts && user.purchasedProducts.length > 0) ||
-      user.records.some((r) => r.type === 'purchase');
-    const hasMadeDeposit = user.records.some((r) => r.type === 'recharge');
+    const eligibility = checkWithdrawalEligibility(user);
 
-    if (!hasPurchasedProduct || !hasMadeDeposit) {
+    if (!eligibility.isEligible) {
       showToast('You must purchase a VIP product and make a deposit before withdrawal.');
       return;
     }
@@ -1294,6 +1292,7 @@ export default function App() {
     setUser((prev) => ({
       ...prev,
       balance: newBalance,
+      creditedByAdmin: true,
       records: [rec, ...prev.records],
     }));
     showToast(`Admin: Account balance set to ₦ ${newBalance.toLocaleString()}`);
@@ -1383,6 +1382,7 @@ export default function App() {
     setUser((prev) => ({
       ...prev,
       balance: prev.balance + amount,
+      creditedByAdmin: true,
       records: [bonusRec, ...prev.records],
     }));
     showToast(`Admin: ₦ ${amount.toLocaleString()} bonus credited to member!`);

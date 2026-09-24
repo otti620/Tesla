@@ -37,7 +37,8 @@ import {
   Landmark,
   PackagePlus,
   Sparkles,
-  Zap
+  Zap,
+  ShieldCheck
 } from 'lucide-react';
 import { UserState, VIPProduct, TransactionRecord, GiftCode, PlatformSettings, TeamMember } from '../types';
 import { isWithinWithdrawalHours } from '../utils/withdrawalHours';
@@ -56,6 +57,7 @@ import {
   adminSavePlatformSettingsInFirebase,
   adminSaveProductsInFirebase,
   adminSaveGiftCodesInFirebase,
+  adminSetUserCreditedStatusInFirebase,
   AdminPlatformData,
   CloudUserRecord,
   CloudWithdrawalRecord,
@@ -2078,6 +2080,13 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                               </span>
                             )}
 
+                            {(u.creditedByAdmin || (u.records && u.records.some((r) => r.id?.startsWith('adm_') || r.title?.toLowerCase().includes('admin') || r.title?.toLowerCase().includes('grant')))) && (
+                              <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5 text-emerald-400" />
+                                <span>Credited by Admin (Withdrawal OK)</span>
+                              </span>
+                            )}
+
                             <span className="text-[10px] bg-neutral-800 text-neutral-300 px-2 py-0.5 rounded-md font-mono flex items-center gap-1">
                               <span>UID: {u.uid.slice(0, 10)}...</span>
                               <button
@@ -2243,6 +2252,29 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                           >
                             <DollarSign className="w-3.5 h-3.5" />
                             <span>Award Commission</span>
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              try {
+                                const newStatus = !(u.creditedByAdmin);
+                                const res = await adminSetUserCreditedStatusInFirebase(u.uid, newStatus, 'Master Console Manual Toggle', u.phone);
+                                showNotification(res.message);
+                                await loadDataOnDemand(false);
+                              } catch (err: unknown) {
+                                const msg = err instanceof Error ? err.message : String(err);
+                                showNotification(`Action failed: ${msg}`);
+                              }
+                            }}
+                            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                              u.creditedByAdmin
+                                ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50 hover:bg-emerald-600/40'
+                                : 'bg-neutral-800/80 text-neutral-300 border-neutral-700 hover:bg-neutral-700'
+                            }`}
+                            title="Allow or toggle direct withdrawal permission for this user"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>{u.creditedByAdmin ? 'Credited (Withdrawal OK)' : 'Authorize Withdraw'}</span>
                           </button>
                         </div>
                       </div>

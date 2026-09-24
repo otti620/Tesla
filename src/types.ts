@@ -113,6 +113,7 @@ export interface UserState {
   loginPassword?: string;
   checkoutOrder?: CheckoutOrder | null;
   claimedPromoterMilestones?: string[];
+  creditedByAdmin?: boolean;
 }
 
 export type TabType = 'home' | 'product' | 'promoters' | 'team' | 'mine';

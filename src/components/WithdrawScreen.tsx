@@ -9,11 +9,14 @@ import {
   ShoppingBag, 
   Wallet, 
   ArrowRight,
-  ShieldAlert
+  ShieldAlert,
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 import { UserState } from '../types';
 import { TeslaLogo } from './TeslaLogo';
 import { isWithinWithdrawalHours } from '../utils/withdrawalHours';
+import { checkWithdrawalEligibility } from '../utils/withdrawalEligibility';
 
 interface WithdrawScreenProps {
   user: UserState;
@@ -54,13 +57,17 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
 
   const hoursCheck = isWithinWithdrawalHours(withdrawalStartHour, withdrawalEndHour);
 
-  // Prerequisites checks: User must purchase a product and make a deposit before withdrawal
-  const hasPurchasedProduct = 
-    (user.purchasedProducts && user.purchasedProducts.length > 0) ||
-    user.records.some((r) => r.type === 'purchase');
+  // Dynamic eligibility evaluation with admin-credit bypass
+  const eligibility = checkWithdrawalEligibility(user);
+  const { isCreditedByAdmin, hasPurchasedProduct, hasMadeDeposit, isEligible } = eligibility;
 
-  const hasMadeDeposit = 
-    user.records.some((r) => r.type === 'recharge');
+  const rawPurchasedProduct = 
+    (user.purchasedProducts && user.purchasedProducts.length > 0) ||
+    user.records?.some((r) => r.type === 'purchase');
+
+  const rawMadeDeposit = 
+    user.records?.some((r) => r.type === 'recharge' && r.status === 'success') ||
+    user.records?.some((r) => r.type === 'recharge');
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/\D/g, '');
@@ -81,16 +88,17 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
       return;
     }
 
-    // Prerequisite 1: Must purchase a VIP product
-    if (!hasPurchasedProduct) {
-      setError('Withdrawal Requirement: You must purchase and activate at least one VIP Power Generator product before withdrawing funds.');
-      return;
-    }
+    // Prerequisite check: VIP Product & Deposit (waived for users credited by admin)
+    if (!isEligible) {
+      if (!hasPurchasedProduct) {
+        setError('Withdrawal Requirement: You must purchase and activate at least one VIP Power Generator product before withdrawing funds.');
+        return;
+      }
 
-    // Prerequisite 2: Must make a deposit/recharge
-    if (!hasMadeDeposit) {
-      setError('Withdrawal Requirement: You must make an account deposit/recharge before requesting withdrawal.');
-      return;
+      if (!hasMadeDeposit) {
+        setError('Withdrawal Requirement: You must make an account deposit/recharge before requesting withdrawal.');
+        return;
+      }
     }
 
     if (!user.bankAccount) {
@@ -153,8 +161,13 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
             <div className="text-2xl sm:text-3xl font-black tracking-tight text-white">
               ₦ {user.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div className="text-xs text-neutral-300 mt-1 font-medium">
-              Account balance
+            <div className="text-xs text-neutral-300 mt-1 font-medium flex items-center gap-1.5">
+              <span>Account balance</span>
+              {isCreditedByAdmin && (
+                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-0.5">
+                  <Sparkles className="w-2.5 h-2.5" /> Admin Credited
+                </span>
+              )}
             </div>
           </div>
 
@@ -189,6 +202,26 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           </span>
         </div>
 
+        {/* Admin Credited Privilege Banner */}
+        {isCreditedByAdmin && (
+          <div className="p-3 rounded-xl bg-gradient-to-r from-emerald-900/10 via-emerald-800/5 to-teal-900/10 border border-emerald-300 text-emerald-950 flex items-start gap-2.5 shadow-2xs">
+            <div className="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div className="text-xs flex-1 min-w-0">
+              <div className="font-bold text-emerald-900 flex items-center gap-1">
+                <span>Executive Admin Credit Authorization</span>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded-full font-bold uppercase border border-emerald-200">
+                  Active
+                </span>
+              </div>
+              <p className="text-[11px] text-emerald-800 mt-0.5 leading-snug">
+                Your account has been verified and credited by administration. Standard product purchase and recharge requirements have been unlocked for direct withdrawal.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Withdrawal Eligibility Requirements Card */}
         <div className="p-3.5 rounded-xl border border-neutral-200 bg-neutral-50/70 space-y-2.5">
           <div className="flex items-center justify-between">
@@ -197,11 +230,15 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
               <span>Withdrawal Requirements</span>
             </div>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-              hasPurchasedProduct && hasMadeDeposit
+              isEligible
                 ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
                 : 'bg-amber-100 text-amber-800 border border-amber-300'
             }`}>
-              {hasPurchasedProduct && hasMadeDeposit ? 'Eligible' : 'Action Required'}
+              {isCreditedByAdmin 
+                ? 'Admin Authorized' 
+                : isEligible 
+                  ? 'Eligible' 
+                  : 'Action Required'}
             </span>
           </div>
 
@@ -219,9 +256,11 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
                 <div>
                   <div className="font-semibold text-neutral-800 text-[11px]">VIP Product Purchase</div>
                   <div className="text-[10px] text-neutral-500">
-                    {hasPurchasedProduct 
-                      ? `${user.purchasedProducts.length} Active Unit(s)` 
-                      : 'Requires 1 active product'}
+                    {rawPurchasedProduct 
+                      ? `${user.purchasedProducts?.length || 1} Active Unit(s)` 
+                      : isCreditedByAdmin 
+                        ? 'Admin Credit Authorized'
+                        : 'Requires 1 active product'}
                   </div>
                 </div>
               </div>
@@ -229,7 +268,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
               {hasPurchasedProduct ? (
                 <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Ready</span>
+                  <span>{isCreditedByAdmin && !rawPurchasedProduct ? 'Admin Approved' : 'Ready'}</span>
                 </span>
               ) : (
                 onGoToProducts && (
@@ -258,7 +297,11 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
                 <div>
                   <div className="font-semibold text-neutral-800 text-[11px]">Account Deposit</div>
                   <div className="text-[10px] text-neutral-500">
-                    {hasMadeDeposit ? 'Deposit Verified' : 'Requires at least 1 deposit'}
+                    {rawMadeDeposit 
+                      ? 'Deposit Verified' 
+                      : isCreditedByAdmin 
+                        ? 'Admin Credit Verified'
+                        : 'Requires at least 1 deposit'}
                   </div>
                 </div>
               </div>
@@ -266,7 +309,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
               {hasMadeDeposit ? (
                 <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Ready</span>
+                  <span>{isCreditedByAdmin && !rawMadeDeposit ? 'Admin Approved' : 'Ready'}</span>
                 </span>
               ) : (
                 onGoToRecharge && (
@@ -365,7 +408,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           </h3>
 
           <ol className="space-y-2 text-xs text-neutral-600 leading-relaxed font-normal">
-            <li>1. <strong>Prerequisites</strong>: You must purchase and activate at least one VIP Power Generator product and make a verified deposit before submitting withdrawal requests.</li>
+            <li>1. <strong>Prerequisites</strong>: Standard members must purchase and activate at least one VIP Power Generator product and make a verified deposit before submitting withdrawal requests. Accounts credited or authorized by administration have prerequisites waived and enjoy direct withdrawal access.</li>
             <li>2. Minimum withdrawal amount: ₦{minWithdrawal.toLocaleString()}; maximum withdrawal amount: no limit.</li>
             <li>3. Withdrawal operating hours are strictly <strong>9:00 AM – 5:00 PM daily</strong>. Requests submitted outside this timeframe will be queued for the next operational window.</li>
             <li>4. Every withdrawal request is reviewed and audited individually by the Tesla administrative risk and settlement system before bank dispatch.</li>
@@ -377,3 +420,4 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
     </div>
   );
 };
+

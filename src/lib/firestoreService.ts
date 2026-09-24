@@ -84,6 +84,7 @@ export interface CloudUserRecord {
   records?: TransactionRecord[];
   lastCheckInDate?: string | null;
   claimedPromoterMilestones?: string[];
+  creditedByAdmin?: boolean;
   updatedAt?: number;
 }
 
@@ -175,6 +176,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
         records: data.records || [],
         lastCheckInDate: data.lastCheckInDate || null,
         claimedPromoterMilestones: data.claimedPromoterMilestones || [],
+        creditedByAdmin: data.creditedByAdmin === true || (data.records && data.records.some((r: any) => r.id?.startsWith('adm_') || r.title?.toLowerCase().includes('admin') || r.title?.toLowerCase().includes('grant'))),
       };
       usersList.push(userRec);
 
@@ -243,6 +245,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
           records: acc.userState.records || [],
           lastCheckInDate: acc.userState.lastCheckInDate || null,
           claimedPromoterMilestones: acc.userState.claimedPromoterMilestones || [],
+          creditedByAdmin: acc.userState.creditedByAdmin === true || (acc.userState.records && acc.userState.records.some((r: any) => r.id?.startsWith('adm_') || r.title?.toLowerCase().includes('admin') || r.title?.toLowerCase().includes('grant'))),
         });
       }
 
@@ -547,6 +550,7 @@ export async function adminUpdateUserBalanceInFirebase(
         {
           balance: newBalance,
           records: updatedRecords,
+          creditedByAdmin: true,
           updatedAt: Date.now(),
         },
         { merge: true }
@@ -566,6 +570,7 @@ export async function adminUpdateUserBalanceInFirebase(
       const u = localAccounts[matchedKey].userState;
       u.balance = newBalance;
       u.records = updatedRecords;
+      u.creditedByAdmin = true;
       localAccounts[matchedKey].updatedAt = Date.now();
       saveLocalAccounts(localAccounts);
     }
@@ -579,14 +584,15 @@ export async function adminUpdateUserBalanceInFirebase(
       if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
         sessionUser.balance = newBalance;
         sessionUser.records = updatedRecords;
+        sessionUser.creditedByAdmin = true;
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
       }
     }
   } catch {}
 
   // 4. Dispatch real-time cross-component and cross-tab events
-  window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: newBalance } }));
-  window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { balance: newBalance, records: updatedRecords } }));
+  window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: newBalance, creditedByAdmin: true } }));
+  window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { balance: newBalance, records: updatedRecords, creditedByAdmin: true } }));
 }
 
 /**
@@ -634,6 +640,7 @@ export async function adminGrantUserBonusInFirebase(
         {
           balance: newBalance,
           records: [bonusRec, ...(resolved.data.records || [])],
+          creditedByAdmin: true,
           updatedAt: Date.now(),
         },
         { merge: true }
@@ -653,6 +660,7 @@ export async function adminGrantUserBonusInFirebase(
       const u = localAccounts[matchedKey].userState;
       u.balance = (Number(u.balance) || 0) + amount;
       u.records = [bonusRec, ...(u.records || [])];
+      u.creditedByAdmin = true;
       localAccounts[matchedKey].updatedAt = Date.now();
       saveLocalAccounts(localAccounts);
     }
@@ -665,11 +673,95 @@ export async function adminGrantUserBonusInFirebase(
       if (cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
         sessionUser.balance = (Number(sessionUser.balance) || 0) + amount;
         sessionUser.records = [bonusRec, ...(sessionUser.records || [])];
+        sessionUser.creditedByAdmin = true;
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
-        window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: sessionUser.balance } }));
+        window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: sessionUser.balance, creditedByAdmin: true } }));
+        window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { balance: sessionUser.balance, records: sessionUser.records, creditedByAdmin: true } }));
       }
     }
   } catch {}
+}
+
+/**
+ * ADMIN: Explicitly toggle or set a user's admin credited withdrawal authorization status
+ */
+export async function adminSetUserCreditedStatusInFirebase(
+  targetUid: string,
+  isCredited: boolean = true,
+  reason: string = 'Admin Direct Withdrawal Authorization',
+  targetPhone?: string
+): Promise<{ success: boolean; message: string }> {
+  const cleanPhone = cleanNigerianPhoneDigits(targetPhone || targetUid);
+  const resolved = await resolveUserDocRef(targetUid, targetPhone);
+
+  const authRecord: TransactionRecord = {
+    id: `adm_auth_${Date.now()}`,
+    type: 'bonus',
+    title: isCredited ? 'Admin Withdrawal Authorization Granted' : 'Admin Withdrawal Authorization Revoked',
+    amount: 0,
+    status: 'success',
+    timestamp: Date.now(),
+    details: `${reason} - Executed by Master Console`,
+  };
+
+  const updatedRecords = resolved ? [authRecord, ...(resolved.data.records || [])] : [authRecord];
+
+  const docRefsToUpdate = new Set<string>();
+  if (resolved?.docId) docRefsToUpdate.add(resolved.docId);
+  if (targetUid) docRefsToUpdate.add(targetUid);
+  if (cleanPhone) docRefsToUpdate.add(cleanPhone);
+
+  for (const dId of docRefsToUpdate) {
+    try {
+      await setDoc(
+        doc(db, 'users', dId),
+        {
+          creditedByAdmin: isCredited,
+          records: updatedRecords,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn(`Firestore credit authorization notice for doc ${dId}:`, err);
+    }
+  }
+
+  // Update in Local Registry
+  try {
+    const localAccounts = getLocalAccounts();
+    const matchedKey = Object.keys(localAccounts).find(
+      (k) => k === targetUid || cleanNigerianPhoneDigits(localAccounts[k].phone) === cleanPhone
+    );
+    if (matchedKey && localAccounts[matchedKey]) {
+      const u = localAccounts[matchedKey].userState;
+      u.creditedByAdmin = isCredited;
+      u.records = updatedRecords;
+      localAccounts[matchedKey].updatedAt = Date.now();
+      saveLocalAccounts(localAccounts);
+    }
+  } catch {}
+
+  // Update active session in localStorage if matching
+  try {
+    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    if (sessionRaw) {
+      const sessionUser = JSON.parse(sessionRaw);
+      if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
+        sessionUser.creditedByAdmin = isCredited;
+        sessionUser.records = updatedRecords;
+        localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+        window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { creditedByAdmin: isCredited, records: updatedRecords } }));
+      }
+    }
+  } catch {}
+
+  return {
+    success: true,
+    message: isCredited
+      ? `User ${targetPhone || targetUid} is now authorized for direct withdrawal (Credited by Admin).`
+      : `Admin credit authorization revoked for ${targetPhone || targetUid}.`,
+  };
 }
 
 /**
