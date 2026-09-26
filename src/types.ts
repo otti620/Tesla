@@ -90,6 +90,8 @@ export interface PlatformSettings {
   level3CommissionPct: number;
   withdrawalStartHour: number; // 9 for 9:00 AM
   withdrawalEndHour: number; // 17 for 5:00 PM
+  sundayWithdrawalStartHour?: number; // 14 for 2:00 PM (Strict Sunday Schedule)
+  sundayWithdrawalEndHour?: number; // 17 for 5:00 PM (Strict Sunday Schedule)
   allowAdminBypassHours?: boolean;
   depositBankName?: string;
   depositAccountNo?: string;

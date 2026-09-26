@@ -2764,7 +2764,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       <div className="flex items-center gap-2">
                         <Clock className="w-4 h-4 text-amber-400" />
                         <span className="text-xs font-bold uppercase tracking-wider text-white">
-                          Daily Withdrawal Processing Schedule
+                          Monday – Saturday Withdrawal Processing Schedule
                         </span>
                       </div>
                       <span className="text-[11px] text-amber-400 font-mono">
@@ -2774,7 +2774,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
-                        <label className="text-[11px] text-neutral-400 block mb-1">Start Hour (24h clock)</label>
+                        <label className="text-[11px] text-neutral-400 block mb-1">Weekday Start Hour (24h)</label>
                         <select
                           value={editableSettings.withdrawalStartHour ?? 9}
                           onChange={(e) => setEditableSettings({ ...editableSettings, withdrawalStartHour: parseInt(e.target.value, 10) })}
@@ -2789,7 +2789,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       </div>
 
                       <div>
-                        <label className="text-[11px] text-neutral-400 block mb-1">End Hour (24h clock)</label>
+                        <label className="text-[11px] text-neutral-400 block mb-1">Weekday End Hour (24h)</label>
                         <select
                           value={editableSettings.withdrawalEndHour ?? 17}
                           onChange={(e) => setEditableSettings({ ...editableSettings, withdrawalEndHour: parseInt(e.target.value, 10) })}
@@ -2814,6 +2814,53 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                           />
                           <span className="text-xs text-neutral-300">Allow 24/7 testing bypass</span>
                         </label>
+                      </div>
+                    </div>
+
+                    {/* Strict Sunday Processing Window */}
+                    <div className="pt-3 border-t border-neutral-800/80">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-emerald-400" />
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                            Strict Sunday Withdrawal Window
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                          Sundays: 2:00 PM – 5:00 PM Strict
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] text-neutral-400 block mb-1">Sunday Start Hour (24h)</label>
+                          <select
+                            value={editableSettings.sundayWithdrawalStartHour ?? 14}
+                            onChange={(e) => setEditableSettings({ ...editableSettings, sundayWithdrawalStartHour: parseInt(e.target.value, 10) })}
+                            className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+                          >
+                            {Array.from({ length: 24 }).map((_, i) => (
+                              <option key={i} value={i}>
+                                {i.toString().padStart(2, '0')}:00 ({i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] text-neutral-400 block mb-1">Sunday End Hour (24h)</label>
+                          <select
+                            value={editableSettings.sundayWithdrawalEndHour ?? 17}
+                            onChange={(e) => setEditableSettings({ ...editableSettings, sundayWithdrawalEndHour: parseInt(e.target.value, 10) })}
+                            className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-emerald-500"
+                          >
+                            {Array.from({ length: 24 }).map((_, i) => (
+                              <option key={i} value={i}>
+                                {i.toString().padStart(2, '0')}:00 ({i === 0 ? '12 AM' : i < 12 ? `${i} AM` : i === 12 ? '12 PM' : `${i - 12} PM`})
+                              </option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     </div>
                   </div>

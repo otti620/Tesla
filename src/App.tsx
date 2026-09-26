@@ -65,6 +65,7 @@ import { cleanNigerianPhoneDigits } from './utils/adminAuth';
 import { extractReferralCodeFromUrl } from './utils/referral';
 import { normalizePurchasedProducts, normalizeProductCatalog, getCanonicalProduct, mergePurchasedProducts } from './utils/productUtils';
 import { checkWithdrawalEligibility } from './utils/withdrawalEligibility';
+import { isWithinWithdrawalHours } from './utils/withdrawalHours';
 import { 
   distributeProductPurchaseCommissions, 
   recordNewReferralRegistration 
@@ -847,6 +848,19 @@ export default function App() {
 
   // Withdraw Handler
   const handleSuccessWithdraw = async (amount: number, fee: number) => {
+    const hoursCheck = isWithinWithdrawalHours(
+      platformSettings.withdrawalStartHour ?? 9,
+      platformSettings.withdrawalEndHour ?? 17,
+      undefined,
+      platformSettings.sundayWithdrawalStartHour ?? 14,
+      platformSettings.sundayWithdrawalEndHour ?? 17
+    );
+
+    if (!hoursCheck.isAllowed && !platformSettings.allowAdminBypassHours) {
+      showToast(hoursCheck.errorMessage || 'Withdrawals are currently closed.');
+      return;
+    }
+
     const eligibility = checkWithdrawalEligibility(user);
 
     if (!eligibility.isEligible) {
@@ -1530,6 +1544,8 @@ export default function App() {
           minWithdrawal={platformSettings.minWithdrawal}
           withdrawalStartHour={platformSettings.withdrawalStartHour ?? 9}
           withdrawalEndHour={platformSettings.withdrawalEndHour ?? 17}
+          sundayWithdrawalStartHour={platformSettings.sundayWithdrawalStartHour ?? 14}
+          sundayWithdrawalEndHour={platformSettings.sundayWithdrawalEndHour ?? 17}
           allowAdminBypassHours={platformSettings.allowAdminBypassHours ?? false}
         />
       );

@@ -106,7 +106,7 @@ export const NotifyModal: React.FC<NotifyModalProps> = ({
             </div>
             <div className="flex items-start gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-200 shrink-0 mt-0.5" />
-              <span>Withdrawals are processed daily from <strong>9:00 AM to 5:00 PM</strong> with rapid administrative audit and bank settlement.</span>
+              <span>Withdrawals are processed from <strong>9:00 AM to 5:00 PM (Mon–Sat)</strong> and strictly <strong>2:00 PM to 5:00 PM on Sundays</strong> with rapid administrative audit and bank settlement.</span>
             </div>
             <div className="flex items-start gap-1.5 font-bold text-white bg-white/10 p-1.5 rounded-lg">
               <Send className="w-3.5 h-3.5 text-cyan-200 shrink-0 mt-0.5" />

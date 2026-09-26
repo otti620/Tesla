@@ -30,6 +30,8 @@ interface WithdrawScreenProps {
   minWithdrawal?: number;
   withdrawalStartHour?: number;
   withdrawalEndHour?: number;
+  sundayWithdrawalStartHour?: number;
+  sundayWithdrawalEndHour?: number;
   allowAdminBypassHours?: boolean;
 }
 
@@ -45,6 +47,8 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
   minWithdrawal = 800,
   withdrawalStartHour = 9,
   withdrawalEndHour = 17,
+  sundayWithdrawalStartHour = 14,
+  sundayWithdrawalEndHour = 17,
   allowAdminBypassHours = false,
 }) => {
   const [withdrawAmount, setWithdrawAmount] = useState<string>('');
@@ -55,7 +59,17 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
   const taxDeduction = numAmount * taxRate;
   const receivedAmount = Math.max(0, numAmount - taxDeduction);
 
-  const hoursCheck = isWithinWithdrawalHours(withdrawalStartHour, withdrawalEndHour);
+  const hoursCheck = isWithinWithdrawalHours(
+    withdrawalStartHour,
+    withdrawalEndHour,
+    undefined,
+    sundayWithdrawalStartHour,
+    sundayEndHourFallback(sundayWithdrawalEndHour)
+  );
+
+  function sundayEndHourFallback(val?: number) {
+    return val ?? 17;
+  }
 
   // Dynamic eligibility evaluation with admin-credit bypass
   const eligibility = checkWithdrawalEligibility(user);
@@ -80,10 +94,13 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
     setError('');
     setSuccessMsg('');
 
-    // Check operating hours: 9:00 AM to 5:00 PM
+    // Check operating hours: Mon-Sat 9:00 AM - 5:00 PM, Sunday strictly 2:00 PM - 5:00 PM
     if (!hoursCheck.isAllowed && !allowAdminBypassHours) {
       setError(
-        `Withdrawals are only processed from 9:00 AM to 5:00 PM daily. Current time is ${hoursCheck.formattedCurrentTime}. Please request within operating hours.`
+        hoursCheck.errorMessage ||
+        (hoursCheck.isSunday
+          ? `Withdrawals on Sundays are strictly from 2:00 PM to 5:00 PM WAT. Current time is ${hoursCheck.formattedCurrentTime}.`
+          : `Withdrawals are only processed from 9:00 AM to 5:00 PM WAT. Current time is ${hoursCheck.formattedCurrentTime}.`)
       );
       return;
     }
@@ -187,15 +204,20 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           <div className="flex items-center gap-2">
             <Clock className={`w-4 h-4 shrink-0 ${hoursCheck.isAllowed ? 'text-[#00c269]' : 'text-amber-600'}`} />
             <div>
-              <div className="font-bold">
-                Withdrawal Hours: 9:00 AM – 5:00 PM Daily
+              <div className="font-bold flex items-center gap-1.5">
+                <span>{hoursCheck.isSunday ? 'Sunday Withdrawal Hours: 2:00 PM – 5:00 PM' : 'Withdrawal Hours: 9:00 AM – 5:00 PM'}</span>
+                {hoursCheck.isSunday && (
+                  <span className="bg-amber-200/80 text-amber-900 text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-amber-300">
+                    Strict Sunday Schedule
+                  </span>
+                )}
               </div>
               <div className="text-[11px] opacity-85">
-                Current Time: {hoursCheck.formattedCurrentTime} ({hoursCheck.isAllowed ? 'Operational' : 'Outside Window'})
+                Current Time: {hoursCheck.formattedCurrentTime} WAT ({hoursCheck.statusText})
               </div>
             </div>
           </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0 ${
             hoursCheck.isAllowed ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'
           }`}>
             {hoursCheck.isAllowed ? 'Open' : 'Closed'}
@@ -410,7 +432,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           <ol className="space-y-2 text-xs text-neutral-600 leading-relaxed font-normal">
             <li>1. <strong>Prerequisites</strong>: Standard members must purchase and activate at least one VIP Power Generator product and make a verified deposit before submitting withdrawal requests. Accounts credited or authorized by administration have prerequisites waived and enjoy direct withdrawal access.</li>
             <li>2. Minimum withdrawal amount: ₦{minWithdrawal.toLocaleString()}; maximum withdrawal amount: no limit.</li>
-            <li>3. Withdrawal operating hours are strictly <strong>9:00 AM – 5:00 PM daily</strong>. Requests submitted outside this timeframe will be queued for the next operational window.</li>
+            <li>3. Withdrawal operating hours are strictly <strong>9:00 AM – 5:00 PM (Monday – Saturday)</strong> and strictly <strong>2:00 PM – 5:00 PM on Sundays (WAT)</strong>. Requests submitted outside this timeframe will not be processed until the next operational window.</li>
             <li>4. Every withdrawal request is reviewed and audited individually by the Tesla administrative risk and settlement system before bank dispatch.</li>
             <li>5. {(taxRate * 100).toFixed(0)}% of the withdrawal amount will be deducted for statutory handling and banking fees.</li>
             <li>6. Multiple withdrawals per day are supported during operational hours once eligibility prerequisites are fulfilled.</li>

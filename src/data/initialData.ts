@@ -151,6 +151,8 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
   level3CommissionPct: 1,
   withdrawalStartHour: 9,
   withdrawalEndHour: 17,
+  sundayWithdrawalStartHour: 14,
+  sundayWithdrawalEndHour: 17,
   allowAdminBypassHours: false,
   depositBankName: 'CARBON',
   depositAccountNo: '1581957640',
@@ -161,7 +163,7 @@ export const PLATFORM_ANNOUNCEMENTS = [
   'Welcome to Tesla Clean Energy — ₦1,500 Welcome Bonus credited upon registration',
   'Official Telegram Group: Join t.me/teslainvestment456 for exclusive bonuses and events',
   'Customer Support: Reach Customer Service Manager Sally at t.me/sallyservice4',
-  'Official Withdrawal Window: 9:00 AM – 5:00 PM daily with instant bank settlement',
+  'Official Withdrawal Schedule: Mon–Sat 9:00 AM – 5:00 PM | Sundays strictly 2:00 PM – 5:00 PM',
   'Affiliate Referral Network: Earn up to 25% instant commission on team fleet activations',
 ];
 

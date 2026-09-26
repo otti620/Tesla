@@ -89,10 +89,10 @@ export const InfoModals: React.FC<InfoModalProps> = ({ type, onBack }) => {
               <div className="bg-neutral-50 p-4 rounded-xl border border-neutral-200">
                 <h3 className="font-bold text-neutral-900 mb-1 flex items-center gap-1.5">
                   <Globe className="w-4 h-4 text-[#00c269]" />
-                  3. Withdrawal Rules &amp; Settlement
+                  3. Withdrawal Rules &amp; Schedule
                 </h3>
                 <p>
-                  Minimum withdrawal is ₦ 2,300 with unlimited daily withdrawals. A statutory platform maintenance &amp; tax fee of 18% is deducted automatically at the time of withdrawal.
+                  Minimum withdrawal is ₦ 800. Operating hours are strictly <strong>9:00 AM – 5:00 PM (Monday – Saturday)</strong> and strictly <strong>2:00 PM – 5:00 PM on Sundays (WAT)</strong>. Accounts credited or approved by administration enjoy direct prerequisite waiver. A statutory platform maintenance &amp; tax fee of 18% is deducted automatically.
                 </p>
               </div>
 
