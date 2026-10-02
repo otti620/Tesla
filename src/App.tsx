@@ -34,6 +34,7 @@ import { AppDownloadScreen } from './components/AppDownloadScreen';
 import { AdminPanelScreen } from './components/AdminPanelScreen';
 import { PromotersScreen } from './components/PromotersScreen';
 import { FlyerModal } from './components/FlyerModal';
+import { TemporaryAdministrationLandingScreen } from './components/TemporaryAdministrationLandingScreen';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { INITIAL_PRODUCTS, INITIAL_GIFT_CODES, INITIAL_PLATFORM_SETTINGS } from './data/initialData';
 import { GiftCode, PlatformSettings } from './types';
@@ -191,6 +192,7 @@ export default function App() {
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [bypassAdminMode, setBypassAdminMode] = useState<boolean>(false);
 
   // Local state based notification queue
   const [notificationQueue, setNotificationQueue] = useState<NotificationBannerItem[]>([]);
@@ -1465,6 +1467,25 @@ export default function App() {
       showToast(`Admin: Deployed ${product.vipLevel} to wallet in Real-Time!`);
     }
   };
+
+  // If Temporary Administration mode is active and user has not bypassed or requested Admin Panel
+  const isTemporaryAdminModeActive = platformSettings.isTemporaryAdministrationMode !== false;
+
+  if (isTemporaryAdminModeActive && !bypassAdminMode && subScreen !== 'admin') {
+    return (
+      <div className="min-h-screen w-full bg-neutral-950 flex flex-col font-sans">
+        {toastMessage && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-black/90 text-white px-4 py-2 rounded-full text-xs font-medium backdrop-blur-md shadow-lg border border-white/10 animate-in fade-in duration-150 text-center max-w-[90vw]">
+            {toastMessage}
+          </div>
+        )}
+        <TemporaryAdministrationLandingScreen
+          platformSettings={platformSettings}
+          onOpenTelegram={handleOpenTelegram}
+        />
+      </div>
+    );
+  }
 
   // If verifying initial auth session and no cached local session
   if (isAuthChecking && !user.isLoggedIn) {

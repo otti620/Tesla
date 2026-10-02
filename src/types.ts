@@ -96,6 +96,8 @@ export interface PlatformSettings {
   depositBankName?: string;
   depositAccountNo?: string;
   depositAccountName?: string;
+  isTemporaryAdministrationMode?: boolean; // When true, fronts landing page saying "In Administration - Coming Soon"
+  administrationNotice?: string;
 }
 
 export interface UserState {

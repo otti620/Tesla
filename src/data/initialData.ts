@@ -157,6 +157,8 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
   depositBankName: 'CARBON',
   depositAccountNo: '1581957640',
   depositAccountName: 'LEVIATHAN HYPERMARKET',
+  isTemporaryAdministrationMode: true,
+  administrationNotice: 'Official Notice of Temporary Administration: The Tesla Clean Energy Fleet platform is undergoing scheduled administrative review, balance verification, and server infrastructure restructuring. Normal operations will resume shortly with enhanced security and yield reliability.',
 };
 
 export const PLATFORM_ANNOUNCEMENTS = [
