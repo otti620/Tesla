@@ -1,13 +1,18 @@
 import React, { useState } from 'react';
-import { Users, Copy, Check, Share2, Send, MessageCircle, Sparkles, Link2 } from 'lucide-react';
+import { Users, Copy, Check, Share2, Send, MessageCircle, Sparkles, Link2, RefreshCw, ShieldAlert, Headset } from 'lucide-react';
 import { UserState, PlatformSettings } from '../types';
 import { getDynamicReferralLink, shareReferralLink, getReferralShareMessage } from '../utils/referral';
+import { DangoteLogo } from './DangoteLogo';
 
 interface TeamScreenProps {
   user: UserState;
   platformSettings?: PlatformSettings;
   onNavigateToTeamDetails: () => void;
   onOpenFlyerModal?: () => void;
+  onNavigateToCustomerService?: () => void;
+  onNavigateToAdmin?: () => void;
+  onRefreshTeam?: () => Promise<void>;
+  onNavigateToTasks?: () => void;
 }
 
 export const TeamScreen: React.FC<TeamScreenProps> = ({ 
@@ -15,12 +20,29 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
   platformSettings, 
   onNavigateToTeamDetails,
   onOpenFlyerModal,
+  onNavigateToCustomerService,
+  onNavigateToAdmin,
+  onRefreshTeam,
+  onNavigateToTasks,
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const inviteLink = getDynamicReferralLink(user.inviteCode);
+
+  const handleRefreshTeam = async () => {
+    setRefreshing(true);
+    if (onRefreshTeam) {
+      try {
+        await onRefreshTeam();
+      } catch (err) {
+        console.warn('Team live sync notice:', err);
+      }
+    }
+    setTimeout(() => setRefreshing(false), 600);
+  };
 
   const copyToClipboard = (text: string, isLink: boolean) => {
     if (navigator?.clipboard?.writeText) {
@@ -50,10 +72,6 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
     }
   };
 
-  const shareText = getReferralShareMessage(user.inviteCode, inviteLink);
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareText)}`;
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(shareText)}`;
-
   const lv1Members = user.teamMembers.filter((m) => m.level === 1);
   const lv2Members = user.teamMembers.filter((m) => m.level === 2);
   const lv3Members = user.teamMembers.filter((m) => m.level === 3);
@@ -66,241 +84,193 @@ export const TeamScreen: React.FC<TeamScreenProps> = ({
   const totalTeamIncome = lv1Bonus + lv2Bonus + lv3Bonus;
 
   return (
-    <div className="min-h-screen pb-24 bg-neutral-100 text-neutral-900">
-      {/* Top Banner with Dynamic Invitation Code & Link */}
-      <div className="relative min-h-64 w-full overflow-hidden bg-neutral-900 text-white p-5 flex flex-col justify-center">
-        <img
-          src="https://images.unsplash.com/photo-1538370965046-79c0d6907d47?w=800&auto=format&fit=crop&q=80"
-          alt="Tesla Team Referral"
-          className="absolute inset-0 w-full h-full object-cover brightness-35"
-          referrerPolicy="no-referrer"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-neutral-900 via-black/50 to-transparent" />
+    <div className="min-h-screen pb-24 bg-slate-50 text-slate-900 font-sans">
+      {/* Top Header */}
+      <div className="sticky top-0 z-30 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-base font-black text-slate-900">My Team Network</span>
+        </div>
 
-        <div className="relative z-10 space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold tracking-wider uppercase">
-                Dynamic Referral Link
-              </span>
-            </div>
-            {shareFeedback && (
-              <span className="text-xs text-emerald-400 font-bold animate-in fade-in">
-                {shareFeedback}
-              </span>
-            )}
-          </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefreshTeam}
+            className={`p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer ${refreshing ? 'animate-spin' : ''}`}
+            title="Refresh Team & Commissions"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
 
-          {/* Invitation Code Row */}
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-2xl font-black tracking-wider text-white font-mono">
-                {user.inviteCode}
-              </div>
-              <div className="text-xs text-neutral-300 font-medium">
-                Your VIP Invitation Code
-              </div>
-            </div>
-
+          {onNavigateToAdmin && (
             <button
-              onClick={() => copyToClipboard(user.inviteCode, false)}
-              className="py-1.5 px-5 rounded-full bg-[#00c269] hover:bg-[#00ab5c] text-white text-xs font-bold shadow-md active:scale-95 transition flex items-center gap-1.5 cursor-pointer"
+              onClick={onNavigateToAdmin}
+              className="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-xs transition flex items-center gap-1 cursor-pointer"
             >
-              {copiedCode ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedCode ? 'Copied' : 'Copy Code'}</span>
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>HQ</span>
             </button>
-          </div>
+          )}
 
-          {/* Dynamic Invitation Link Row */}
-          <div className="bg-black/60 backdrop-blur-md rounded-2xl p-3 border border-white/10 space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] text-emerald-400 truncate font-mono select-all">
-                  {inviteLink}
-                </div>
-                <div className="text-[10px] text-neutral-400 font-medium">
-                  Dynamic link auto-applies your referral code upon click
-                </div>
-              </div>
-
-              <button
-                onClick={() => copyToClipboard(inviteLink, true)}
-                className="py-1.5 px-4 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition flex items-center gap-1 shrink-0 cursor-pointer"
-              >
-                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedLink ? 'Copied' : 'Copy Link'}</span>
-              </button>
-            </div>
-
-            {/* Quick Share Buttons Bar */}
-            <div className="pt-2 border-t border-white/10 flex flex-wrap items-center gap-2">
-              <button
-                onClick={handleShareClick}
-                className="flex-1 py-2 px-3 rounded-xl bg-[#00c269] hover:bg-[#00ab5c] text-white text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share Link</span>
-              </button>
-
-              {onOpenFlyerModal && (
-                <button
-                  type="button"
-                  onClick={onOpenFlyerModal}
-                  className="py-2 px-3 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-amber-200 border border-amber-400/40 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95"
-                  title="Generate Advertising Flyer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Flyer Studio</span>
-                </button>
-              )}
-
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="py-2 px-3 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition flex items-center gap-1.5"
-                title="Share via WhatsApp"
-              >
-                <MessageCircle className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">WhatsApp</span>
-              </a>
-
-              <a
-                href={telegramUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="py-2 px-3 rounded-xl bg-sky-600/30 hover:bg-sky-600/50 text-sky-300 border border-sky-500/30 text-xs font-bold transition flex items-center gap-1.5"
-                title="Share via Telegram"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Telegram</span>
-              </a>
-            </div>
-          </div>
+          {onNavigateToCustomerService && (
+            <button
+              onClick={onNavigateToCustomerService}
+              className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-black shadow-xs border border-slate-200 transition cursor-pointer active:scale-95"
+              title="Support"
+            >
+              <Headset className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="p-3 space-y-3 -mt-3 relative z-20">
-        {/* My Team Card */}
-        <div className="bg-white rounded-xl p-4 shadow-xs border border-neutral-200">
-          <div className="flex items-center justify-between pb-3 border-b border-neutral-100 mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-full bg-emerald-50 text-[#00c269] flex items-center justify-center">
-                <Users className="w-4 h-4" />
+      <div className="p-4 space-y-4">
+        {/* My Team Summary Card */}
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-5 space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center">
+                <Users className="w-5 h-5" />
               </div>
-              <span className="font-bold text-sm text-neutral-800">My team</span>
+              <div>
+                <h3 className="text-sm font-black text-slate-900">My Team</h3>
+                <p className="text-xs text-slate-700 font-bold">Referral Network Commission Breakdown</p>
+              </div>
             </div>
 
             <button
               onClick={onNavigateToTeamDetails}
-              className="py-1 px-3 rounded-md bg-[#00c269] hover:bg-[#00ab5c] text-white text-xs font-semibold shadow-xs active:scale-95 transition flex items-center gap-0.5"
+              className="py-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-xs transition cursor-pointer"
             >
-              <span>Team details &gt;&gt;</span>
+              Team details &gt;&gt;
             </button>
           </div>
 
-          {/* Commission Tiers list (LV1, LV2, LV3) */}
-          <div className="space-y-4">
+          {/* Tiers List */}
+          <div className="space-y-3">
             {/* LV1 */}
-            <div className="flex items-center justify-between text-center">
-              <div className="w-14 h-14 rounded-full border border-neutral-200 flex items-center justify-center font-extrabold text-sm text-neutral-800 shadow-xs bg-neutral-50">
-                LV1
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{platformSettings?.level1CommissionPct ?? 25}%</div>
-                <div className="text-[11px] text-neutral-500">Buy commission</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{lv1Members.length}</div>
-                <div className="text-[11px] text-neutral-500">Valid user</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">
-                  {lv1Bonus.toFixed(2)}
+            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-sky-100 text-sky-900 border border-sky-300 flex items-center justify-center font-black text-xs font-mono shrink-0">
+                  LV1
                 </div>
-                <div className="text-[11px] text-neutral-500">Bonus</div>
+                <div>
+                  <div className="text-sm font-black text-sky-700">15% Commission</div>
+                  <div className="text-xs text-slate-700 font-bold">Direct Invite Buyers</div>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-bold text-slate-900">{lv1Members.length} Members</div>
+                <div className="text-xs font-mono font-black text-blue-700">₦{lv1Bonus.toLocaleString()}.00 Bonus</div>
               </div>
             </div>
 
             {/* LV2 */}
-            <div className="flex items-center justify-between text-center">
-              <div className="w-14 h-14 rounded-full border border-neutral-200 flex items-center justify-center font-extrabold text-sm text-neutral-800 shadow-xs bg-neutral-50">
-                LV2
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{platformSettings?.level2CommissionPct ?? 1}%</div>
-                <div className="text-[11px] text-neutral-500">Commission Rate</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{lv2Members.length}</div>
-                <div className="text-[11px] text-neutral-500">Valid user</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">
-                  {lv2Bonus.toFixed(2)}
+            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-blue-100 text-blue-900 border border-blue-300 flex items-center justify-center font-black text-xs font-mono shrink-0">
+                  LV2
                 </div>
-                <div className="text-[11px] text-neutral-500">Bonus</div>
+                <div>
+                  <div className="text-sm font-black text-blue-700">3% Commission</div>
+                  <div className="text-xs text-slate-700 font-bold">Tier 2 Network</div>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-bold text-slate-900">{lv2Members.length} Members</div>
+                <div className="text-xs font-mono font-black text-blue-700">₦{lv2Bonus.toLocaleString()}.00 Bonus</div>
               </div>
             </div>
 
             {/* LV3 */}
-            <div className="flex items-center justify-between text-center">
-              <div className="w-14 h-14 rounded-full border border-neutral-200 flex items-center justify-center font-extrabold text-sm text-neutral-800 shadow-xs bg-neutral-50">
-                LV3
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{platformSettings?.level3CommissionPct ?? 1}%</div>
-                <div className="text-[11px] text-neutral-500">Commission Rate</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">{lv3Members.length}</div>
-                <div className="text-[11px] text-neutral-500">Valid user</div>
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-neutral-800">
-                  {lv3Bonus.toFixed(2)}
+            <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-900 border border-indigo-300 flex items-center justify-center font-black text-xs font-mono shrink-0">
+                  LV3
                 </div>
-                <div className="text-[11px] text-neutral-500">Bonus</div>
+                <div>
+                  <div className="text-sm font-black text-indigo-700">1% Commission</div>
+                  <div className="text-xs text-slate-700 font-bold">Tier 3 Network</div>
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-bold text-slate-900">{lv3Members.length} Members</div>
+                <div className="text-xs font-mono font-black text-blue-700">₦{lv3Bonus.toLocaleString()}.00 Bonus</div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* 2 Summary Cards (Screenshot 11) */}
-        <div className="grid grid-cols-2 gap-2 text-white">
-          <div className="bg-[#00c269] rounded-lg p-3 text-center shadow-xs">
-            <div className="text-xl font-bold">{totalPeople}</div>
-            <div className="text-xs font-medium text-white/90">Number of people</div>
-          </div>
-          <div className="bg-[#00c269] rounded-lg p-3 text-center shadow-xs">
-            <div className="text-xl font-bold">
-              ₦ {totalTeamIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          {/* Aggregate Stats Cards */}
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <div className="bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 rounded-2xl p-4 text-center shadow-xs border border-sky-400/40 text-white">
+              <div className="text-2xl font-black font-mono">{totalPeople}</div>
+              <div className="text-xs font-bold text-sky-200 mt-0.5">Total Members</div>
             </div>
-            <div className="text-xs font-medium text-white/90">Team income</div>
+
+            <div className="bg-white rounded-2xl p-4 text-center shadow-xs border border-slate-200">
+              <div className="text-xl sm:text-2xl font-black text-blue-700 font-mono">₦ {totalTeamIncome.toLocaleString()}</div>
+              <div className="text-xs font-bold text-slate-600 mt-0.5">Total Team Income</div>
+            </div>
           </div>
         </div>
 
-        {/* Invitation Bonus Info Card (Screenshot 11) */}
-        <div className="bg-[#005a30] text-white rounded-xl p-4 shadow-sm border border-emerald-800">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1 h-4 bg-amber-400 rounded-full" />
-            <h4 className="text-sm font-bold text-amber-300">Invitation bonus</h4>
+        {/* Invitation Bonus Rules & Sharing Card */}
+        <div className="bg-white rounded-2xl p-5 border border-slate-200 space-y-4 shadow-xs">
+          <h4 className="text-sm font-black text-slate-900 flex items-center gap-1.5">
+            <Sparkles className="w-4 h-4 text-sky-500" />
+            <span>Invitation Bonus &amp; Rules</span>
+          </h4>
+
+          <p className="text-xs text-slate-600 leading-relaxed font-medium">
+            When a friend you invite registers and acquires share tranches, you will immediately receive a cash reward of <strong>15%</strong> of their investment amount on Level 1, <strong>3%</strong> on Level 2, and <strong>1%</strong> on Level 3.
+          </p>
+
+          <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[10px] text-slate-500 font-bold block">Invitation Code</span>
+                <span className="text-lg font-black font-mono text-blue-700">{user.inviteCode}</span>
+              </div>
+              <button
+                onClick={() => copyToClipboard(user.inviteCode, false)}
+                className="py-2 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-xs transition cursor-pointer"
+              >
+                {copiedCode ? 'Copied Code!' : 'Copy Code'}
+              </button>
+            </div>
+
+            <div className="pt-2 border-t border-slate-200 flex items-center justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <span className="text-[10px] text-slate-500 font-bold block">Shareable Dynamic Link</span>
+                <span className="text-xs font-mono text-blue-700 truncate block font-bold">{inviteLink}</span>
+              </div>
+              <button
+                onClick={() => copyToClipboard(inviteLink, true)}
+                className="py-2 px-4 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition shrink-0 cursor-pointer"
+              >
+                {copiedLink ? 'Copied Link!' : 'Copy Link'}
+              </button>
+            </div>
           </div>
 
-          <div className="text-xs space-y-2.5 text-neutral-100 font-normal leading-relaxed">
-            <p>
-              When a friend you invite registers and invests, you will immediately receive a cash reward of {platformSettings?.level1CommissionPct ?? 25}% of the friend's investment amount.
-            </p>
-            <p>
-              When your Level 2 team members invest, you will receive a 1% cash bonus.
-            </p>
-            <p>
-              When your Level 3 team members invest, you will receive a 1% cash bonus.
-            </p>
-            <p className="text-amber-200/90 font-medium">
-              Once your team member invests, the cash bonus is instantly credited to your account balance and you can withdraw it right away.
-            </p>
+          <div className="pt-2 flex items-center gap-2">
+            <button
+              onClick={handleShareClick}
+              className="flex-1 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-xs active:scale-95 transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Share2 className="w-4 h-4 text-sky-300" />
+              <span>Share Referral Link</span>
+            </button>
+            {onOpenFlyerModal && (
+              <button
+                onClick={onOpenFlyerModal}
+                className="py-3 px-4 rounded-xl bg-sky-100 hover:bg-sky-200 text-sky-900 border border-sky-300 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-sky-600" />
+                <span>Flyer Studio</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -2,7 +2,7 @@
   "entities": {
     "user": {
       "title": "User Profile",
-      "description": "Registered Tesla user financial profile and activity logs",
+      "description": "Registered Dangote Refinery shareholder profile, balance, and portfolio",
       "type": "object",
       "properties": {
         "phone": {
@@ -15,11 +15,15 @@
         },
         "cumulativeIncome": {
           "type": "number",
-          "description": "Total accrued earnings from VIP products and commissions"
+          "description": "Total accrued earnings from share tranches and commissions"
         },
         "inviteCode": {
           "type": "string",
           "description": "Alphanumeric referral code"
+        },
+        "invitedBy": {
+          "type": "string",
+          "description": "Referrer invite code"
         },
         "fundPin": {
           "type": "string",
@@ -35,15 +39,23 @@
         },
         "teamMembers": {
           "type": "array",
-          "description": "Downline team member list"
+          "description": "Downline shareholder team member list"
         },
         "purchasedProducts": {
           "type": "array",
-          "description": "Active income generation generators"
+          "description": "Active subscribed share tranche contracts"
         },
         "records": {
           "type": "array",
           "description": "Financial and ledger transaction entries"
+        },
+        "claimedPromoterMilestones": {
+          "type": "array",
+          "description": "Claimed milestone IDs"
+        },
+        "creditedByAdmin": {
+          "type": "boolean",
+          "description": "Executive administrative credit flag"
         },
         "updatedAt": {
           "type": "number",
@@ -52,6 +64,153 @@
       },
       "required": ["phone", "balance"]
     },
+    "deposit": {
+      "title": "Deposit Transaction",
+      "description": "Submitted bank transfer recharge record awaiting admin audit clearance",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Deposit transaction order reference"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Depositor account UID"
+        },
+        "userPhone": {
+          "type": "string",
+          "description": "Depositor mobile phone number"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Deposit amount in NGN"
+        },
+        "channel": {
+          "type": "string",
+          "description": "Payment channel used"
+        },
+        "senderBank": {
+          "type": "string",
+          "description": "Sender bank name"
+        },
+        "payeeName": {
+          "type": "string",
+          "description": "Sender account holder name"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "success", "failed"],
+          "description": "Audit verification status"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Submission timestamp"
+        }
+      },
+      "required": ["id", "userId", "userPhone", "amount", "status", "timestamp"]
+    },
+    "order": {
+      "title": "Shareholder Order Contract",
+      "description": "Purchased Dangote Refinery Share Tranche subscription",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique order contract instance identifier"
+        },
+        "userId": {
+          "type": "string",
+          "description": "Buyer user identifier"
+        },
+        "userPhone": {
+          "type": "string",
+          "description": "Buyer mobile phone number"
+        },
+        "productId": {
+          "type": "string",
+          "description": "Subscribed share product ID"
+        },
+        "productTitle": {
+          "type": "string",
+          "description": "Product tranche title"
+        },
+        "vipLevel": {
+          "type": "string",
+          "description": "VIP Tier classification"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Purchase cost in NGN"
+        },
+        "dailyIncome": {
+          "type": "number",
+          "description": "Daily dividend rate in NGN"
+        },
+        "totalIncome": {
+          "type": "number",
+          "description": "Total contractual return in NGN"
+        },
+        "validityDays": {
+          "type": "number",
+          "description": "Contract duration in days"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "completed"],
+          "description": "Contract state"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Activation timestamp"
+        }
+      },
+      "required": ["id", "userPhone", "amount", "status", "timestamp"]
+    },
+    "commission": {
+      "title": "Referral Commission Ledger",
+      "description": "Affiliate and multi-tier team dividend commission payout",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Commission transaction identifier"
+        },
+        "uplinePhone": {
+          "type": "string",
+          "description": "Receiving upline phone number"
+        },
+        "uplineInviteCode": {
+          "type": "string",
+          "description": "Receiving upline invite code"
+        },
+        "buyerPhone": {
+          "type": "string",
+          "description": "Direct downline buyer phone number"
+        },
+        "level": {
+          "type": "number",
+          "description": "Commission tier level (1, 2, or 3)"
+        },
+        "amount": {
+          "type": "number",
+          "description": "Commission cash reward in NGN"
+        },
+        "productTitle": {
+          "type": "string",
+          "description": "Tranche title that triggered bonus"
+        },
+        "timestamp": {
+          "type": "number",
+          "description": "Credit timestamp"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["success"],
+          "description": "Payout settlement status"
+        }
+      },
+      "required": ["id", "uplinePhone", "buyerPhone", "level", "amount", "timestamp", "status"]
+    },
     "appState": {
       "title": "System App State",
       "description": "Platform parameters, product models, and gift voucher codes",
@@ -59,7 +218,7 @@
       "properties": {
         "products": {
           "type": "array",
-          "description": "VIP Generator products available for purchase"
+          "description": "Share tranche products available for subscription"
         },
         "giftCodes": {
           "type": "array",
@@ -120,7 +279,19 @@
   "firestore": {
     "/users/{userId}": {
       "schema": "user",
-      "description": "User specific portfolio, balance, and records"
+      "description": "User specific portfolio, balance, team, and records"
+    },
+    "/deposits/{depositId}": {
+      "schema": "deposit",
+      "description": "Recharge deposit records"
+    },
+    "/orders/{orderId}": {
+      "schema": "order",
+      "description": "Executed share tranche purchase contracts"
+    },
+    "/commissions/{commissionId}": {
+      "schema": "commission",
+      "description": "Distributed multi-tier shareholder referral commissions"
     },
     "/system/{docId}": {
       "schema": "appState",

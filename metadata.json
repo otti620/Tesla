@@ -1,6 +1,6 @@
 {
-  "name": "Tesla",
-  "description": "Tesla official member energy rewards and investment portal.",
+  "name": "Dangote Petroleum Refinery Shareholder Portal",
+  "description": "Dangote Petroleum Refinery official shareholder portal and investment platform.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

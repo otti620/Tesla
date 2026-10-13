@@ -811,7 +811,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-sm sm:text-base font-black tracking-tight text-white uppercase">
-                    Tesla Admin Central
+                    Dangote Refinery HQ Admin
                   </h1>
                   <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
                     FIREBASE MASTER
@@ -1030,7 +1030,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
               Data is loaded strictly on demand. No open socket subscriptions or passive background listeners are maintained.
             </p>
             <div className="pt-2 border-t border-neutral-800 text-[10px] text-neutral-400 font-mono">
-              Database: <span className="text-emerald-400">(default) • tesla-90</span>
+              Database: <span className="text-emerald-400">(default) • dangote-refinery</span>
             </div>
           </div>
         </aside>
@@ -2524,13 +2524,13 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-bold text-white">Tesla Fleet VIP Products Management</h3>
+                  <h3 className="text-base font-bold text-white">Dangote Refinery VIP Share Tranches Management</h3>
                   <p className="text-xs text-neutral-400">
                     Product definitions saved directly to Firebase Firestore system state.
                   </p>
                 </div>
                 <span className="text-xs font-mono bg-neutral-900 border border-neutral-800 px-3 py-1 rounded-full text-neutral-300">
-                  {products.length} Vehicles in Catalog
+                  {products.length} Share Tranches in Catalog
                 </span>
               </div>
 
@@ -2758,72 +2758,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 </div>
 
                 <form onSubmit={handleSavePlatformSettingsToFirebase} className="space-y-6">
-                  {/* Temporary Administration Mode Control */}
-                  <div className={`border rounded-2xl p-5 space-y-4 transition-all ${
-                    editableSettings.isTemporaryAdministrationMode !== false
-                      ? 'bg-amber-950/40 border-amber-500/50 shadow-lg shadow-amber-500/5'
-                      : 'bg-neutral-950 border-neutral-800'
-                  }`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2.5">
-                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-                          editableSettings.isTemporaryAdministrationMode !== false
-                            ? 'bg-amber-500 text-black font-bold'
-                            : 'bg-neutral-800 text-neutral-400'
-                        }`}>
-                          <ShieldAlert className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <div className="text-xs font-bold uppercase tracking-wider text-white flex items-center gap-2">
-                            <span>Front Temporary Administration Landing Page</span>
-                            <span className={`text-[10px] px-2 py-0.2 rounded-full font-bold uppercase ${
-                              editableSettings.isTemporaryAdministrationMode !== false
-                                ? 'bg-amber-400 text-black animate-pulse'
-                                : 'bg-neutral-800 text-neutral-400'
-                            }`}>
-                              {editableSettings.isTemporaryAdministrationMode !== false ? 'Active (Coming Soon)' : 'Inactive (Live App)'}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-neutral-400">
-                            When active, visitors and members see the "In Administration - Coming Soon" landing page.
-                          </p>
-                        </div>
-                      </div>
 
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={editableSettings.isTemporaryAdministrationMode !== false}
-                          onChange={(e) =>
-                            setEditableSettings({
-                              ...editableSettings,
-                              isTemporaryAdministrationMode: e.target.checked,
-                            })
-                          }
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-neutral-800 peer-focus:outline-hidden rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                      </label>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] text-neutral-400 block mb-1">
-                        Administration Public Communiqué / Notice
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={editableSettings.administrationNotice || ''}
-                        onChange={(e) =>
-                          setEditableSettings({
-                            ...editableSettings,
-                            administrationNotice: e.target.value,
-                          })
-                        }
-                        placeholder="Notice of Temporary Administration: The Tesla Clean Energy Fleet platform is undergoing scheduled administrative review, balance verification, and server infrastructure restructuring..."
-                        className="w-full bg-neutral-900 border border-neutral-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-hidden focus:border-amber-500 leading-relaxed font-sans"
-                      />
-                    </div>
-                  </div>
 
                   {/* Withdrawal Schedule Settings */}
                   <div className="bg-neutral-950 border border-neutral-800/80 rounded-xl p-4 space-y-4">
@@ -3063,7 +2998,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Official Telegram Group Link</label>
                       <input
                         type="text"
-                        value={editableSettings.telegramGroupLink ?? editableSettings.telegramLink ?? 'https://t.me/teslainvestment456'}
+                        value={editableSettings.telegramGroupLink ?? editableSettings.telegramLink ?? 'https://t.me/dangote_ipo'}
                         onChange={(e) =>
                           setEditableSettings({
                             ...editableSettings,
@@ -3071,7 +3006,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                             telegramGroupLink: e.target.value,
                           })
                         }
-                        placeholder="https://t.me/teslainvestment456"
+                        placeholder="https://t.me/dangote_ipo"
                         className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-purple-500"
                       />
                     </div>
@@ -3080,7 +3015,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Customer Service Manager Link</label>
                       <input
                         type="text"
-                        value={editableSettings.customerServiceManagerLink ?? 'https://t.me/sallyservice4'}
+                        value={editableSettings.customerServiceManagerLink ?? 'https://t.me/Abigail_faith56'}
                         onChange={(e) =>
                           setEditableSettings({
                             ...editableSettings,
@@ -3088,7 +3023,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                             customerServiceUsername: e.target.value.replace(/.*t\.me\//, '').replace('@', ''),
                           })
                         }
-                        placeholder="https://t.me/sallyservice4"
+                        placeholder="https://t.me/Abigail_faith56"
                         className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-purple-500"
                       />
                     </div>

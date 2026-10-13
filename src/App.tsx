@@ -17,7 +17,6 @@ import { ProductScreen } from './components/ProductScreen';
 import { TeamScreen } from './components/TeamScreen';
 import { MineScreen } from './components/MineScreen';
 import { BottomNav } from './components/BottomNav';
-import { NotifyModal } from './components/NotifyModal';
 import { NotificationBannerQueue } from './components/NotificationBannerQueue';
 import { RechargeScreen } from './components/RechargeScreen';
 import { WithdrawScreen } from './components/WithdrawScreen';
@@ -32,9 +31,10 @@ import { TeamDetailsScreen } from './components/TeamDetailsScreen';
 import { SecurityScreen } from './components/SecurityScreen';
 import { AppDownloadScreen } from './components/AppDownloadScreen';
 import { AdminPanelScreen } from './components/AdminPanelScreen';
-import { PromotersScreen } from './components/PromotersScreen';
+import { TasksScreen } from './components/TasksScreen';
 import { FlyerModal } from './components/FlyerModal';
-import { TemporaryAdministrationLandingScreen } from './components/TemporaryAdministrationLandingScreen';
+import { TelegramGroupFlyerModal } from './components/TelegramGroupFlyerModal';
+import { DangoteLogo } from './components/DangoteLogo';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { INITIAL_PRODUCTS, INITIAL_GIFT_CODES, INITIAL_PLATFORM_SETTINGS } from './data/initialData';
 import { GiftCode, PlatformSettings } from './types';
@@ -48,8 +48,8 @@ import {
   registerWithPhone, 
   logoutUser 
 } from './lib/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc, onSnapshot, collection, getDocs } from 'firebase/firestore';
 import { 
   loginAccount, 
   registerAccount, 
@@ -72,8 +72,10 @@ import {
   recordNewReferralRegistration 
 } from './lib/referralService';
 import { saveUserBankAccountInFirebase } from './lib/firestoreService';
+import { sanitizeForFirestore } from './utils/firestoreSanitizer';
 
-const STORAGE_KEY = 'tesla_app_state_v2';
+const STORAGE_KEY = 'dangote_app_state_v2';
+const LEGACY_STORAGE_KEY = 'tesla_app_state_v2';
 
 const INITIAL_USER: UserState = {
   isLoggedIn: false,
@@ -94,31 +96,38 @@ export default function App() {
   const [user, setUser] = useState<UserState>(() => {
     try {
       purgeAllMockDataAcrossPlatform();
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.isLoggedIn) {
-          // Purge any lingering mock data from previous sessions
-          parsed.teamMembers = (parsed.teamMembers || []).filter(
-            (tm: any) =>
-              !tm.id?.startsWith('tm_adm_') &&
-              !tm.id?.startsWith('sim_') &&
-              tm.phone !== '+234 8031122334' &&
-              tm.phone !== '+234 8149988776'
-          );
-          parsed.purchasedProducts = normalizePurchasedProducts(
-            (parsed.purchasedProducts || []).filter((p: any) => !p.instanceId?.startsWith('prod_adm_'))
-          );
-          parsed.records = (parsed.records || []).filter(
-            (r: any) =>
-              !r.id?.startsWith('rec_adm_grant_') &&
-              !r.details?.includes('Pre-seeded') &&
-              r.title !== 'Master Admin System Grant'
-          );
-          if (parsed.bankAccount?.accountName === 'Tesla Energy Master Treasury') {
-            parsed.bankAccount = null;
+        if (parsed && parsed.isLoggedIn && parsed.phone) {
+          const cleanDigits = cleanNigerianPhoneDigits(parsed.phone);
+          const accounts = getLocalAccounts();
+          if (accounts[cleanDigits] || isAdminUser(parsed.phone)) {
+            // Purge any lingering mock data from previous sessions
+            parsed.teamMembers = (parsed.teamMembers || []).filter(
+              (tm: any) =>
+                !tm.id?.startsWith('tm_adm_') &&
+                !tm.id?.startsWith('sim_') &&
+                tm.phone !== '+234 8031122334' &&
+                tm.phone !== '+234 8149988776'
+            );
+            parsed.purchasedProducts = normalizePurchasedProducts(
+              (parsed.purchasedProducts || []).filter((p: any) => !p.instanceId?.startsWith('prod_adm_'))
+            );
+            parsed.records = (parsed.records || []).filter(
+              (r: any) =>
+                !r.id?.startsWith('rec_adm_grant_') &&
+                !r.details?.includes('Pre-seeded') &&
+                r.title !== 'Master Admin System Grant'
+            );
+            if (
+              parsed.bankAccount?.accountName === 'Dangote Refinery Master Treasury' ||
+              parsed.bankAccount?.accountName === 'Tesla Energy Master Treasury'
+            ) {
+              parsed.bankAccount = null;
+            }
+            return parsed;
           }
-          return parsed;
         }
       }
     } catch {
@@ -131,7 +140,7 @@ export default function App() {
   const [subScreen, setSubScreen] = useState<SubScreen>(null);
   const [products, setProducts] = useState<VIPProduct[]>(() => {
     try {
-      const saved = localStorage.getItem('tesla_products_state');
+      const saved = localStorage.getItem('dangote_products_state') || localStorage.getItem('tesla_products_state');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -145,7 +154,7 @@ export default function App() {
   });
   const [giftCodes, setGiftCodes] = useState<GiftCode[]>(() => {
     try {
-      const saved = localStorage.getItem('tesla_gift_codes_state');
+      const saved = localStorage.getItem('dangote_gift_codes_state') || localStorage.getItem('tesla_gift_codes_state');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
@@ -163,15 +172,15 @@ export default function App() {
 
   const [platformSettings, setPlatformSettings] = useState<PlatformSettings>(() => {
     try {
-      const saved = localStorage.getItem('tesla_platform_settings');
+      const saved = localStorage.getItem('dangote_platform_settings') || localStorage.getItem('tesla_platform_settings');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed) {
-          if (parsed.signupBonus === 2300 || parsed.signupBonus === 500) {
-            parsed.signupBonus = 1500;
+          if (parsed.signupBonus !== 1000) {
+            parsed.signupBonus = 1000;
           }
-          if (parsed.minWithdrawal === 2000 || parsed.minWithdrawal === 2300 || !parsed.minWithdrawal) {
-            parsed.minWithdrawal = 800;
+          if (parsed.minWithdrawal !== 1500) {
+            parsed.minWithdrawal = 1500;
           }
           return { ...INITIAL_PLATFORM_SETTINGS, ...parsed };
         }
@@ -183,20 +192,22 @@ export default function App() {
   });
 
   const [activeCheckoutOrder, setActiveCheckoutOrder] = useState<CheckoutOrder | null>(null);
-  const [showNotifyModal, setShowNotifyModal] = useState<boolean>(true);
   const [showGiftModal, setShowGiftModal] = useState<boolean>(false);
   const [showFlyerModal, setShowFlyerModal] = useState<boolean>(false);
+  const [showTelegramGroupFlyer, setShowTelegramGroupFlyer] = useState<boolean>(false);
   const [referralCodeFromUrl] = useState<string | null>(() => extractReferralCodeFromUrl());
   const [authMode, setAuthMode] = useState<'login' | 'register'>(() => {
     return extractReferralCodeFromUrl() ? 'register' : 'login';
   });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [bypassAdminMode, setBypassAdminMode] = useState<boolean>(false);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(false);
 
   // Local state based notification queue
   const [notificationQueue, setNotificationQueue] = useState<NotificationBannerItem[]>([]);
   const isCollectingRevenueRef = useRef<boolean>(false);
+  const isPurchasingRef = useRef<boolean>(false);
+  const isCheckingInRef = useRef<boolean>(false);
+  const isClaimingMilestoneRef = useRef<boolean>(false);
 
   // Local state based notification queue management for mature product revenue
   useEffect(() => {
@@ -286,6 +297,7 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem('dangote_products_state', JSON.stringify(products));
       localStorage.setItem('tesla_products_state', JSON.stringify(products));
     } catch {
       // ignore
@@ -294,6 +306,7 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem('dangote_gift_codes_state', JSON.stringify(giftCodes));
       localStorage.setItem('tesla_gift_codes_state', JSON.stringify(giftCodes));
     } catch {
       // ignore
@@ -302,6 +315,7 @@ export default function App() {
 
   useEffect(() => {
     try {
+      localStorage.setItem('dangote_platform_settings', JSON.stringify(platformSettings));
       localStorage.setItem('tesla_platform_settings', JSON.stringify(platformSettings));
     } catch {
       // ignore
@@ -323,8 +337,8 @@ export default function App() {
           if (data.giftCodes) setGiftCodes(data.giftCodes);
           if (data.platformSettings) {
             const s = { ...data.platformSettings };
-            if (s.signupBonus === 2300 || s.signupBonus === 500) s.signupBonus = 1500;
-            if (s.minWithdrawal === 2000 || s.minWithdrawal === 2300 || !s.minWithdrawal) s.minWithdrawal = 800;
+            if (s.signupBonus !== 1000) s.signupBonus = 1000;
+            if (s.minWithdrawal !== 1500) s.minWithdrawal = 1500;
             setPlatformSettings(s);
           }
         }
@@ -370,24 +384,22 @@ export default function App() {
 
     for (const dId of docIdsToUpdate) {
       try {
-        await setDoc(
-          doc(db, 'users', dId),
-          {
-            phone: updatedUser.phone,
-            balance: updatedUser.balance,
-            cumulativeIncome: updatedUser.cumulativeIncome,
-            bankAccount: updatedUser.bankAccount,
-            purchasedProducts: normalizePurchasedProducts(updatedUser.purchasedProducts),
-            records: updatedUser.records,
-            fundPin: updatedUser.fundPin,
-            inviteCode: updatedUser.inviteCode,
-            invitedBy: updatedUser.invitedBy,
-            lastCheckInDate: updatedUser.lastCheckInDate || null,
-            claimedPromoterMilestones: updatedUser.claimedPromoterMilestones || [],
-            updatedAt: now,
-          },
-          { merge: true }
-        );
+        const payload = sanitizeForFirestore({
+          phone: updatedUser.phone,
+          balance: typeof updatedUser.balance === 'number' && !isNaN(updatedUser.balance) ? updatedUser.balance : 0,
+          cumulativeIncome: typeof updatedUser.cumulativeIncome === 'number' && !isNaN(updatedUser.cumulativeIncome) ? updatedUser.cumulativeIncome : 0,
+          bankAccount: updatedUser.bankAccount || null,
+          purchasedProducts: normalizePurchasedProducts(updatedUser.purchasedProducts || []),
+          teamMembers: updatedUser.teamMembers || [],
+          records: updatedUser.records || [],
+          fundPin: updatedUser.fundPin || '123456',
+          inviteCode: updatedUser.inviteCode || '',
+          invitedBy: updatedUser.invitedBy || null,
+          lastCheckInDate: updatedUser.lastCheckInDate || null,
+          claimedPromoterMilestones: updatedUser.claimedPromoterMilestones || [],
+          updatedAt: now,
+        });
+        await setDoc(doc(db, 'users', dId), payload, { merge: true });
       } catch (err) {
         console.warn(`Firestore sync notice for user doc ${dId}:`, err);
       }
@@ -429,40 +441,89 @@ export default function App() {
             } catch {}
           }
 
+          const accounts = getLocalAccounts();
+          const localAcc = digits ? accounts[digits] : null;
+
+          // STRICT CHECK: Does this user actually have a valid account in cloudData, localAcc, or isAdmin?
+          const hasValidProfile = Boolean(
+            (cloudData && (cloudData.phone || cloudData.inviteCode)) ||
+            (localAcc && localAcc.userState?.phone) ||
+            isAdminUser(digits)
+          );
+
+          if (!hasValidProfile) {
+            // Firebase Auth user has no registered profile! Do NOT log in! Strictly enforce AuthScreen!
+            console.warn('Firebase user has no registered account in Firestore or local registry. Logging out.');
+            await signOut(auth).catch(() => {});
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(LEGACY_STORAGE_KEY);
+            if (isMounted) {
+              setUser(INITIAL_USER);
+              setIsAuthChecking(false);
+            }
+            return;
+          }
+
           if (isMounted) {
             setUser((prev) => {
+              const baseData = cloudData || localAcc?.userState || prev;
               const merged: UserState = {
                 ...INITIAL_USER,
-                ...prev,
-                ...(cloudData || {}),
+                ...baseData,
                 isLoggedIn: true,
-                balance: cloudData?.balance !== undefined ? cloudData.balance : prev.balance,
-                cumulativeIncome: cloudData?.cumulativeIncome !== undefined ? cloudData.cumulativeIncome : prev.cumulativeIncome,
-                bankAccount: cloudData?.bankAccount || prev.bankAccount || null,
-                fundPin: cloudData?.fundPin || prev.fundPin || '123456',
+                phone: baseData.phone || (digits ? `+234 ${digits}` : prev.phone),
+                balance: typeof cloudData?.balance === 'number' && !isNaN(cloudData.balance)
+                  ? cloudData.balance
+                  : (typeof localAcc?.userState?.balance === 'number' && !isNaN(localAcc.userState.balance)
+                    ? localAcc.userState.balance
+                    : (typeof prev.balance === 'number' && !isNaN(prev.balance) ? prev.balance : 0)),
+                cumulativeIncome: typeof cloudData?.cumulativeIncome === 'number' && !isNaN(cloudData.cumulativeIncome)
+                  ? cloudData.cumulativeIncome
+                  : (typeof localAcc?.userState?.cumulativeIncome === 'number' && !isNaN(localAcc.userState.cumulativeIncome)
+                    ? localAcc.userState.cumulativeIncome
+                    : (typeof prev.cumulativeIncome === 'number' && !isNaN(prev.cumulativeIncome) ? prev.cumulativeIncome : 0)),
+                bankAccount: cloudData?.bankAccount || localAcc?.userState?.bankAccount || prev.bankAccount || null,
+                fundPin: cloudData?.fundPin || localAcc?.userState?.fundPin || prev.fundPin || '123456',
                 purchasedProducts: mergePurchasedProducts(
-                  prev.purchasedProducts,
-                  cloudData?.purchasedProducts
+                  prev.purchasedProducts || [],
+                  cloudData?.purchasedProducts || localAcc?.userState?.purchasedProducts || []
                 ),
-                claimedPromoterMilestones: cloudData?.claimedPromoterMilestones || prev.claimedPromoterMilestones || [],
+                claimedPromoterMilestones: cloudData?.claimedPromoterMilestones || localAcc?.userState?.claimedPromoterMilestones || prev.claimedPromoterMilestones || [],
                 records: (cloudData?.records && cloudData.records.length > 0)
                   ? cloudData.records
-                  : prev.records,
+                  : (localAcc?.userState?.records || prev.records || []),
+                teamMembers: cloudData?.teamMembers || localAcc?.userState?.teamMembers || prev.teamMembers || [],
               };
               return merged;
             });
           }
         } catch (err) {
-          console.warn('Firestore user restore notice (retaining local state):', err);
+          // Silent fallback to local user state if Firestore document read is unavailable or offline
         }
       } else {
         // No active Firebase user - check if local session exists
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
         if (saved) {
           try {
             const parsed = JSON.parse(saved);
-            if (parsed && parsed.isLoggedIn && isMounted) {
-              setUser(parsed);
+            if (parsed && parsed.isLoggedIn && parsed.phone && isMounted) {
+              const cleanDigits = cleanNigerianPhoneDigits(parsed.phone);
+              const accounts = getLocalAccounts();
+              if (accounts[cleanDigits] || isAdminUser(parsed.phone)) {
+                setUser({
+                  ...INITIAL_USER,
+                  ...parsed,
+                  balance: typeof parsed.balance === 'number' && !isNaN(parsed.balance) ? parsed.balance : 0,
+                  cumulativeIncome: typeof parsed.cumulativeIncome === 'number' && !isNaN(parsed.cumulativeIncome) ? parsed.cumulativeIncome : 0,
+                  purchasedProducts: parsed.purchasedProducts || [],
+                  records: parsed.records || [],
+                  teamMembers: parsed.teamMembers || [],
+                });
+              } else {
+                localStorage.removeItem(STORAGE_KEY);
+                localStorage.removeItem(LEGACY_STORAGE_KEY);
+                setUser(INITIAL_USER);
+              }
             }
           } catch {
             // ignore
@@ -578,14 +639,20 @@ export default function App() {
       }
     };
 
+    window.addEventListener('dangote_user_state_updated', handleStateUpdated);
     window.addEventListener('tesla_user_state_updated', handleStateUpdated);
+    window.addEventListener('dangote_user_balance_updated', handleBalanceUpdated);
     window.addEventListener('tesla_user_balance_updated', handleBalanceUpdated);
+    window.addEventListener('dangote_product_assigned', handleProductAssigned);
     window.addEventListener('tesla_product_assigned', handleProductAssigned);
 
     return () => {
       unsubDoc();
+      window.removeEventListener('dangote_user_state_updated', handleStateUpdated);
       window.removeEventListener('tesla_user_state_updated', handleStateUpdated);
+      window.removeEventListener('dangote_user_balance_updated', handleBalanceUpdated);
       window.removeEventListener('tesla_user_balance_updated', handleBalanceUpdated);
+      window.removeEventListener('dangote_product_assigned', handleProductAssigned);
       window.removeEventListener('tesla_product_assigned', handleProductAssigned);
     };
   }, [user.isLoggedIn, user.phone, auth.currentUser?.uid]);
@@ -621,10 +688,13 @@ export default function App() {
       setUser(authenticatedUser);
       setSubScreen(null);
       setCurrentTab('home');
-      setShowNotifyModal(true);
       showToast(`Welcome back, ${authenticatedUser.phone}!`);
     } catch (err: any) {
       console.warn('Login error caught in App.tsx:', err);
+      await signOut(auth).catch(() => {});
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      setUser(INITIAL_USER);
       throw err;
     }
   };
@@ -640,10 +710,13 @@ export default function App() {
       setUser(newUser);
       setSubScreen(null);
       setCurrentTab('home');
-      setShowNotifyModal(true);
       showToast(`Registration successful! ₦${platformSettings.signupBonus.toLocaleString()} welcome bonus credited.`);
     } catch (err: any) {
       console.warn('Registration error caught in App.tsx:', err);
+      await signOut(auth).catch(() => {});
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+      setUser(INITIAL_USER);
       throw err;
     }
   };
@@ -654,7 +727,6 @@ export default function App() {
       setUser(adminUser);
       setSubScreen(null);
       setCurrentTab('home');
-      setShowNotifyModal(true);
       showToast(`Master Admin direct session activated (+234 ${digits})`);
     } catch (err: any) {
       showToast(err?.message || 'Admin session activation failed');
@@ -669,41 +741,62 @@ export default function App() {
     showToast('Signed out successfully');
   };
 
-  // Daily Check-In Handler
+  // Daily Check-In Handler (Strict anti-double crediting with ref lock & record verification)
   const handleDailyCheckIn = () => {
-    const today = new Date().toISOString().split('T')[0];
-    if (user.lastCheckInDate === today) {
-      showToast('You have already checked in today! Come back tomorrow.');
-      return;
+    if (isCheckingInRef.current) return;
+    isCheckingInRef.current = true;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      if (user.lastCheckInDate === today) {
+        showToast('You have already checked in today! Come back tomorrow.');
+        return;
+      }
+
+      // Check if user already has an attendance reward recorded for today
+      const alreadyHasAttendanceToday = user.records.some((r) => {
+        if (r.type === 'bonus' && r.title.includes('Daily Attendance')) {
+          const recDate = new Date(r.timestamp).toISOString().split('T')[0];
+          return recDate === today;
+        }
+        return false;
+      });
+
+      if (alreadyHasAttendanceToday) {
+        setUser((prev) => ({ ...prev, lastCheckInDate: today }));
+        showToast('You have already checked in today! Come back tomorrow.');
+        return;
+      }
+
+      const checkInAmount = 10; // Strictly 10 Naira daily check-in bonus
+      const rec: TransactionRecord = {
+        id: `chk_${Date.now()}`,
+        type: 'bonus',
+        title: 'Daily Attendance Reward',
+        amount: checkInAmount,
+        status: 'success',
+        timestamp: Date.now(),
+        details: 'Dangote Shareholder Daily Attendance Grant (₦10)',
+      };
+
+      const newBalance = user.balance + checkInAmount;
+      const updatedRecords = [rec, ...user.records];
+      const updatedUserState: UserState = {
+        ...user,
+        balance: newBalance,
+        lastCheckInDate: today,
+        records: updatedRecords,
+      };
+
+      setUser(updatedUserState);
+      syncUserToFirestoreAndLocal(updatedUserState);
+
+      showToast(`Checked in successfully! +₦${checkInAmount.toLocaleString()} credited to balance.`);
+    } finally {
+      setTimeout(() => {
+        isCheckingInRef.current = false;
+      }, 500);
     }
-
-    const checkInAmount = 10; // Strictly 10 Naira daily check-in bonus
-    const rec: TransactionRecord = {
-      id: `chk_${Date.now()}`,
-      type: 'bonus',
-      title: 'Daily Attendance Reward',
-      amount: checkInAmount,
-      status: 'success',
-      timestamp: Date.now(),
-      details: 'Tesla Daily Attendance Verification Grant (₦10)',
-    };
-
-    const newBalance = user.balance + checkInAmount;
-    const updatedRecords = [rec, ...user.records];
-
-    const updatedUserState: UserState = {
-      ...user,
-      balance: newBalance,
-      lastCheckInDate: today,
-      records: updatedRecords,
-    };
-
-    setUser(updatedUserState);
-    syncUserToFirestoreAndLocal(updatedUserState);
-
-    showToast(`Checked in successfully! +₦${checkInAmount.toLocaleString()} credited to balance.`);
   };
-
   // Recharge -> Checkout Handlers
   const handleProceedToCheckout = (order: CheckoutOrder) => {
     setActiveCheckoutOrder(order);
@@ -977,9 +1070,12 @@ export default function App() {
     showToast(`Withdrawal request of ₦ ${amount.toLocaleString()} submitted! ₦ ${amount.toLocaleString()} deducted.`);
   };
 
-  // Product Purchase Handler
+  // Product Purchase Handler (Protected against double execution & duplicate commissions)
   const handleBuyProduct = (product: VIPProduct): boolean => {
-    if (user.balance < product.price) return false;
+    if (isPurchasingRef.current) return false;
+    isPurchasingRef.current = true;
+    try {
+      if (user.balance < product.price) return false;
 
     const purchaseRecord: TransactionRecord = {
       id: `buy_${Date.now()}`,
@@ -1021,6 +1117,24 @@ export default function App() {
     setUser(updatedUserState);
     syncUserToFirestoreAndLocal(updatedUserState);
 
+    // Persist order to dedicated orders collection in Firestore
+    try {
+      setDoc(doc(db, 'orders', newInstance.instanceId), {
+        id: newInstance.instanceId,
+        userId: user.id || auth.currentUser?.uid || user.phone,
+        userPhone: user.phone,
+        productId: canonical.id,
+        productTitle: canonical.title,
+        vipLevel: canonical.vipLevel,
+        amount: canonical.price,
+        dailyIncome: canonical.dailyIncome,
+        totalIncome: canonical.totalIncome,
+        validityDays: canonical.validityDays,
+        status: 'active',
+        timestamp: now,
+      }).catch((e) => console.warn('Orders collection notice:', e));
+    } catch {}
+
     // Distribute real multi-tier team commissions (Level 1: 25%, Level 2: 1%, Level 3: 1%)
     distributeProductPurchaseCommissions({
       buyerPhone: user.phone,
@@ -1040,6 +1154,11 @@ export default function App() {
 
     showToast(`${product.vipLevel} activated successfully! Daily revenue drops every midnight (12:00 AM WAT).`);
     return true;
+    } finally {
+      setTimeout(() => {
+        isPurchasingRef.current = false;
+      }, 600);
+    }
   };
 
   // Collect Revenue Handler - DAILY 12:00 MIDNIGHT WAT SETTLEMENT
@@ -1134,13 +1253,28 @@ export default function App() {
     setNotificationQueue((prev) => prev.filter((i) => i.id !== id));
   };
 
-  // Claim Promoter Milestone Bounty Handler
+  // Claim Promoter Milestone Bounty Handler (Strict single-claim verification & lock)
   const handleClaimPromoterMilestone = async (milestone: PromoterMilestone): Promise<boolean> => {
-    const claimedSet = new Set(user.claimedPromoterMilestones || []);
-    if (claimedSet.has(milestone.id)) {
-      showToast('This promoter milestone has already been claimed!');
-      return false;
-    }
+    if (isClaimingMilestoneRef.current) return false;
+    isClaimingMilestoneRef.current = true;
+    try {
+      const claimedSet = new Set(user.claimedPromoterMilestones || []);
+      if (claimedSet.has(milestone.id)) {
+        showToast('This promoter milestone has already been claimed!');
+        return false;
+      }
+      // Also check transaction records to guarantee it was never credited previously
+      const alreadyRecorded = user.records.some(
+        (r) => r.type === 'bonus' && r.title.includes(milestone.title)
+      );
+      if (alreadyRecorded) {
+        setUser((prev) => ({
+          ...prev,
+          claimedPromoterMilestones: Array.from(new Set([...(prev.claimedPromoterMilestones || []), milestone.id])),
+        }));
+        showToast('This promoter milestone has already been claimed!');
+        return false;
+      }
 
     const lv1Buyers = user.teamMembers.filter((m) => m.level === 1 && (m.invested || 0) > 0).length;
     if (lv1Buyers < milestone.requiredActiveInvites) {
@@ -1178,6 +1312,11 @@ export default function App() {
 
     showToast(`🎉 Congratulations! +₦${milestone.bonusAmount.toLocaleString()} Milestone Bounty credited to your balance!`);
     return true;
+    } finally {
+      setTimeout(() => {
+        isClaimingMilestoneRef.current = false;
+      }, 500);
+    }
   };
 
   // Bank Account Save Handler
@@ -1278,12 +1417,12 @@ export default function App() {
   };
 
   // Telegram navigation
-  const handleOpenTelegram = (channel = 'Tesla Official Telegram', customUrl?: string) => {
+  const handleOpenTelegram = (channel = 'Dangote Shareholder Telegram', customUrl?: string) => {
     const targetUrl =
       customUrl ||
       platformSettings.telegramGroupLink ||
       platformSettings.telegramLink ||
-      'https://t.me/teslainvestment456';
+      'https://t.me/dangote_ipo';
     showToast(`Opening ${channel}...`);
     try {
       window.open(targetUrl, '_blank', 'noopener,noreferrer');
@@ -1464,40 +1603,146 @@ export default function App() {
       };
       setUser(updatedUserState);
       syncUserToFirestoreAndLocal(updatedUserState);
+
+      // Also persist to orders collection in Firestore
+      try {
+        setDoc(doc(db, 'orders', newInstance.instanceId), {
+          id: newInstance.instanceId,
+          userId: user.id || auth.currentUser?.uid || user.phone,
+          userPhone: user.phone,
+          productId: canonical.id,
+          productTitle: canonical.title,
+          vipLevel: canonical.vipLevel,
+          amount: canonical.price,
+          dailyIncome: canonical.dailyIncome,
+          totalIncome: canonical.totalIncome,
+          validityDays: canonical.validityDays,
+          status: 'active',
+          timestamp: now,
+          allocatedByAdmin: true,
+        }).catch(() => {});
+      } catch {}
+
       showToast(`Admin: Deployed ${product.vipLevel} to wallet in Real-Time!`);
     }
   };
 
-  // If Temporary Administration mode is active and user has not bypassed or requested Admin Panel
-  const isTemporaryAdminModeActive = platformSettings.isTemporaryAdministrationMode !== false;
+  // Complete Firebase synchronization for balance, orders, team, and commissions
+  const handleFullFirestoreSync = async (): Promise<void> => {
+    if (!user.phone && !auth.currentUser?.uid) return;
+    try {
+      const cleanDigits = cleanNigerianPhoneDigits(user.phone);
+      const targetDocId = auth.currentUser?.uid || cleanDigits;
+      if (!targetDocId) return;
 
-  if (isTemporaryAdminModeActive && !bypassAdminMode && subScreen !== 'admin') {
-    return (
-      <div className="min-h-screen w-full bg-neutral-950 flex flex-col font-sans">
-        {toastMessage && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-black/90 text-white px-4 py-2 rounded-full text-xs font-medium backdrop-blur-md shadow-lg border border-white/10 animate-in fade-in duration-150 text-center max-w-[90vw]">
-            {toastMessage}
-          </div>
-        )}
-        <TemporaryAdministrationLandingScreen
-          platformSettings={platformSettings}
-          onOpenTelegram={handleOpenTelegram}
-        />
-      </div>
-    );
-  }
+      // 1. Fetch user doc from Firestore
+      const userDocRef = doc(db, 'users', targetDocId);
+      const snap = await getDoc(userDocRef);
+      let remoteUser = snap.exists() ? (snap.data() as Partial<UserState>) : null;
 
-  // If verifying initial auth session and no cached local session
-  if (isAuthChecking && !user.isLoggedIn) {
-    return (
-      <div className="min-h-screen w-full bg-neutral-950 flex flex-col items-center justify-center text-white space-y-4 font-sans">
-        <div className="w-10 h-10 border-3 border-white/20 border-t-[#00c269] rounded-full animate-spin" />
-        <div className="text-xs font-mono tracking-widest text-neutral-400 uppercase">
-          Authenticating with Tesla Cloud...
-        </div>
-      </div>
-    );
-  }
+      if (!remoteUser && cleanDigits) {
+        const dSnap = await getDoc(doc(db, 'users', cleanDigits));
+        if (dSnap.exists()) {
+          remoteUser = dSnap.data() as Partial<UserState>;
+        }
+      }
+
+      // 2. Fetch all orders for this user from /orders
+      const cloudOrders: PurchasedProductItem[] = [];
+      try {
+        const ordersSnap = await getDocs(collection(db, 'orders'));
+        ordersSnap.docs.forEach((docItem) => {
+          const ord = docItem.data();
+          if (
+            (cleanDigits && cleanNigerianPhoneDigits(ord.userPhone || '') === cleanDigits) ||
+            ord.userId === targetDocId ||
+            ord.userId === user.id
+          ) {
+            cloudOrders.push({
+              instanceId: ord.id || docItem.id,
+              productId: ord.productId,
+              title: ord.productTitle,
+              vipLevel: ord.vipLevel,
+              purchaseDate: ord.timestamp || Date.now(),
+              lastClaimDate: ord.timestamp || Date.now(),
+              dailyIncome: ord.dailyIncome || 0,
+              totalIncome: ord.totalIncome || 0,
+              validityDays: ord.validityDays || 100,
+              daysActive: 0,
+              image: '',
+            });
+          }
+        });
+      } catch (err) {
+        console.warn('Orders query notice:', err);
+      }
+
+      // 3. Fetch commissions for this user from /commissions
+      const cloudCommissions: TransactionRecord[] = [];
+      try {
+        const commSnap = await getDocs(collection(db, 'commissions'));
+        commSnap.docs.forEach((docItem) => {
+          const comm = docItem.data();
+          if (
+            (cleanDigits && cleanNigerianPhoneDigits(comm.uplinePhone || '') === cleanDigits) ||
+            comm.uplineInviteCode === user.inviteCode
+          ) {
+            cloudCommissions.push({
+              id: comm.id || docItem.id,
+              type: 'commission',
+              title: `Level ${comm.level || 1} Team Commission`,
+              amount: comm.amount || 0,
+              status: 'success',
+              timestamp: comm.timestamp || Date.now(),
+              details: `${comm.buyerPhone ? `From downline ${comm.buyerPhone}: ` : ''}${comm.productTitle || 'Share Tranche Subscription'}`,
+            });
+          }
+        });
+      } catch (err) {
+        console.warn('Commissions query notice:', err);
+      }
+
+      setUser((prev) => {
+        const mergedProducts = mergePurchasedProducts(
+          mergePurchasedProducts(prev.purchasedProducts, remoteUser?.purchasedProducts),
+          cloudOrders
+        );
+        const existingRecIds = new Set(prev.records.map((r) => r.id));
+        const mergedRecords = [...prev.records];
+        cloudCommissions.forEach((cr) => {
+          if (!existingRecIds.has(cr.id)) {
+            existingRecIds.add(cr.id);
+            mergedRecords.push(cr);
+          }
+        });
+        (remoteUser?.records || []).forEach((rr) => {
+          if (!existingRecIds.has(rr.id)) {
+            existingRecIds.add(rr.id);
+            mergedRecords.push(rr);
+          }
+        });
+        mergedRecords.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+        const updated: UserState = {
+          ...prev,
+          ...(remoteUser || {}),
+          balance: remoteUser?.balance !== undefined ? remoteUser.balance : prev.balance,
+          cumulativeIncome: remoteUser?.cumulativeIncome !== undefined ? remoteUser.cumulativeIncome : prev.cumulativeIncome,
+          bankAccount: remoteUser?.bankAccount !== undefined ? remoteUser.bankAccount : prev.bankAccount,
+          fundPin: remoteUser?.fundPin || prev.fundPin,
+          teamMembers: remoteUser?.teamMembers && remoteUser.teamMembers.length > 0 ? remoteUser.teamMembers : prev.teamMembers,
+          purchasedProducts: mergedProducts,
+          records: mergedRecords,
+          isLoggedIn: true,
+        };
+        syncUserToFirestoreAndLocal(updated);
+        return updated;
+      });
+      showToast('Live balance, orders, team and commission data synced from Firebase!');
+    } catch (err) {
+      console.warn('Firestore live sync error:', err);
+    }
+  };
 
   // If user is not logged in, show Auth Screen
   if (!user.isLoggedIn) {
@@ -1529,7 +1774,7 @@ export default function App() {
     }
     if (subScreen === 'checkout') {
       const fallbackOrder: CheckoutOrder = {
-        orderNo: `TSL${Date.now().toString().slice(-8)}`,
+        orderNo: `DNG${Date.now().toString().slice(-8)}`,
         amount: 5000,
         channel: 'Recharge Channel 3',
         bankName: platformSettings.depositBankName || 'CARBON',
@@ -1577,6 +1822,8 @@ export default function App() {
           currentBank={user.bankAccount}
           onBack={() => setSubScreen(null)}
           onSaveBank={handleSaveBank}
+          onOpenTelegram={handleOpenTelegram}
+          managerTelegramUrl={platformSettings.customerServiceManagerLink || 'https://t.me/Abigail_faith56'}
         />
       );
     }
@@ -1594,6 +1841,8 @@ export default function App() {
         <RecordsModal
           records={user.records}
           onBack={() => setSubScreen(null)}
+          onOpenTelegram={handleOpenTelegram}
+          managerTelegramUrl={platformSettings.customerServiceManagerLink || 'https://t.me/Abigail_faith56'}
         />
       );
     }
@@ -1623,6 +1872,9 @@ export default function App() {
             setCurrentTab('product');
           }}
           onCollectRevenue={handleCollectRevenue}
+          onRefreshOrders={handleFullFirestoreSync}
+          onNavigateToAdmin={() => setSubScreen('admin')}
+          onNavigateToCustomerService={() => setSubScreen('customer_service')}
         />
       );
     }
@@ -1642,6 +1894,24 @@ export default function App() {
           onBack={() => setSubScreen(null)}
           onUpdatePassword={handleUpdatePassword}
           onUpdateFundPin={handleUpdateFundPin}
+        />
+      );
+    }
+        if (subScreen === 'tasks') {
+      return (
+        <TasksScreen
+          user={user}
+          platformSettings={platformSettings}
+          onBack={() => setSubScreen(null)}
+          onClaimPromoterMilestone={handleClaimPromoterMilestone}
+          onDailyCheckIn={handleDailyCheckIn}
+          onRedeemGiftCode={handleRedeemGift}
+          onNavigateToRecharge={() => setSubScreen('recharge')}
+          onNavigateToProducts={() => {
+            setSubScreen(null);
+            setCurrentTab('product');
+          }}
+          onOpenTelegram={handleOpenTelegram}
         />
       );
     }
@@ -1746,63 +2016,76 @@ export default function App() {
 
         {/* If a sub-screen is active, render it */}
         {subScreen ? (
-          renderSubScreen()
+          <ErrorBoundary fallbackTitle="Portal Screen Safe Mode" onReset={() => setSubScreen(null)}>
+            <div key={subScreen} className="animate-page-in">
+              {renderSubScreen()}
+            </div>
+          </ErrorBoundary>
         ) : (
           <main className="flex-1">
-            {currentTab === 'home' && (
-              <HomeScreen
-                user={user}
-                onNavigate={(screen) => setSubScreen(screen)}
-                onOpenGifts={() => setShowGiftModal(true)}
-                onGoToProducts={() => setCurrentTab('product')}
-                onGoToPromoters={() => setCurrentTab('promoters')}
-                onOpenNotify={() => setShowNotifyModal(true)}
-                onDailyCheckIn={handleDailyCheckIn}
-              />
-            )}
+            <ErrorBoundary fallbackTitle="Shareholder Dashboard Safe Mode" onReset={() => setCurrentTab('home')}>
+              <div key={currentTab} className="animate-page-in">
+                {currentTab === 'home' && (
+                  <HomeScreen
+                    user={user}
+                    onNavigate={(screen) => setSubScreen(screen)}
+                    onOpenGifts={() => setShowGiftModal(true)}
+                    onGoToProducts={() => setCurrentTab('product')}
+                    onGoToOrders={() => setCurrentTab('orders')}
+                    onDailyCheckIn={handleDailyCheckIn}
+                    onOpenTelegramGroupFlyer={() => setShowTelegramGroupFlyer(true)}
+                  />
+                )}
 
-            {currentTab === 'product' && (
-              <ProductScreen
-                user={user}
-                products={products}
-                onBuyProduct={handleBuyProduct}
-                onNavigateToRecharge={() => setSubScreen('recharge')}
-                onNavigateToMyStore={() => setSubScreen('my_store')}
-                onCollectRevenue={handleCollectRevenue}
-              />
-            )}
+                {currentTab === 'product' && (
+                  <ProductScreen
+                    user={user}
+                    products={products}
+                    onBuyProduct={handleBuyProduct}
+                    onNavigateToRecharge={() => setSubScreen('recharge')}
+                    onNavigateToMyStore={() => setSubScreen('my_store')}
+                    onCollectRevenue={handleCollectRevenue}
+                  />
+                )}
 
-            {currentTab === 'promoters' && (
-              <PromotersScreen
-                user={user}
-                platformSettings={platformSettings}
-                onClaimMilestone={handleClaimPromoterMilestone}
-                onNavigateToRecharge={() => setSubScreen('recharge')}
-                onGoToProducts={() => setCurrentTab('product')}
-                onOpenFlyerModal={() => setShowFlyerModal(true)}
-              />
-            )}
+                {currentTab === 'orders' && (
+                  <MyStoreScreen
+                    user={user}
+                    onBack={() => setCurrentTab('home')}
+                    onGoToProducts={() => setCurrentTab('product')}
+                    onCollectRevenue={handleCollectRevenue}
+                    onRefreshOrders={handleFullFirestoreSync}
+                    onNavigateToAdmin={() => setSubScreen('admin')}
+                    onNavigateToCustomerService={() => setSubScreen('customer_service')}
+                  />
+                )}
 
-            {currentTab === 'team' && (
-              <TeamScreen
-                user={user}
-                platformSettings={platformSettings}
-                onNavigateToTeamDetails={() => setSubScreen('team_details')}
-                onOpenFlyerModal={() => setShowFlyerModal(true)}
-              />
-            )}
+                {currentTab === 'team' && (
+                  <TeamScreen
+                    user={user}
+                    platformSettings={platformSettings}
+                    onNavigateToTeamDetails={() => setSubScreen('team_details')}
+                    onOpenFlyerModal={() => setShowFlyerModal(true)}
+                    onNavigateToCustomerService={() => setSubScreen('customer_service')}
+                    onNavigateToAdmin={() => setSubScreen('admin')}
+                    onRefreshTeam={handleFullFirestoreSync}
+                    onNavigateToTasks={() => setSubScreen('tasks')}
+                  />
+                )}
 
-            {currentTab === 'mine' && (
-              <MineScreen
-                user={user}
-                onNavigate={(screen) => setSubScreen(screen)}
-                onOpenGifts={() => setShowGiftModal(true)}
-                onSignOut={handleSignOut}
-                onGoToProducts={() => setCurrentTab('product')}
-                onGoToPromoters={() => setCurrentTab('promoters')}
-                onOpenFlyerModal={() => setShowFlyerModal(true)}
-              />
-            )}
+                {currentTab === 'mine' && (
+                  <MineScreen
+                    user={user}
+                    onNavigate={(screen) => setSubScreen(screen)}
+                    onOpenGifts={() => setShowGiftModal(true)}
+                    onSignOut={handleSignOut}
+                    onGoToProducts={() => setCurrentTab('product')}
+                    onOpenFlyerModal={() => setShowFlyerModal(true)}
+                    onSyncWallet={handleFullFirestoreSync}
+                  />
+                )}
+              </div>
+            </ErrorBoundary>
 
             {/* Bottom Nav Bar */}
             <BottomNav
@@ -1810,6 +2093,7 @@ export default function App() {
               onSelectTab={(tab) => {
                 setCurrentTab(tab);
                 setSubScreen(null);
+                handleFullFirestoreSync();
               }}
             />
           </main>
@@ -1819,53 +2103,37 @@ export default function App() {
         {user.isLoggedIn && !subScreen && (
           <button
             onClick={() => setSubScreen('customer_service')}
-            className="fixed bottom-20 right-3.5 z-40 flex items-center gap-2 p-1.5 pl-2 pr-3 bg-white/95 backdrop-blur-md rounded-full shadow-xl border border-neutral-200/90 hover:scale-105 active:scale-95 transition-all duration-200 group cursor-pointer animate-in fade-in slide-in-from-bottom-3"
+            className="fixed bottom-20 right-3.5 z-40 flex items-center gap-2 p-1.5 pl-2.5 pr-3.5 bg-gradient-to-r from-[#002B49] via-[#003B66] to-[#001D33] text-white rounded-full shadow-[0_10px_25px_-5px_rgba(0,43,73,0.8)] border-2 border-cyan-400/60 hover:border-cyan-300 hover:scale-105 active:scale-95 transition-all duration-200 group cursor-pointer animate-in fade-in slide-in-from-bottom-3"
             aria-label="24/7 Customer Service"
           >
-            <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-emerald-500 shadow-xs shrink-0">
+            <div className="relative w-10 h-10 rounded-full overflow-hidden border-2 border-neutral-950 shadow-md shrink-0">
               <img
                 src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=160&auto=format&fit=crop&q=80"
                 alt="Customer Service Manager"
                 className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                 referrerPolicy="no-referrer"
               />
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white rounded-full animate-pulse" />
+              <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-neutral-950 rounded-full animate-pulse" />
             </div>
             <div className="flex flex-col text-left">
-              <span className="text-[10px] font-black uppercase text-emerald-600 tracking-wider flex items-center gap-1 leading-none">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                24/7 Care
+              <span className="text-[10px] font-black uppercase text-sky-300 tracking-wider flex items-center gap-1 leading-none">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping" />
+                24/7 LIVE
               </span>
-              <span className="text-xs font-black text-neutral-900 leading-tight">
+              <span className="text-xs font-black text-white leading-tight">
                 Support
               </span>
             </div>
           </button>
         )}
 
-        {/* NOTIFY Modal with Prominent Join Telegram Group Button */}
-        <NotifyModal
-          isOpen={showNotifyModal && !subScreen && currentTab === 'home'}
-          onClose={() => setShowNotifyModal(false)}
-          onOpenTelegram={() =>
-            handleOpenTelegram(
-              'Tesla Official Telegram Group',
-              platformSettings.telegramGroupLink || platformSettings.telegramLink || 'https://t.me/teslainvestment456'
-            )
-          }
-          announcementNotice={platformSettings.announcementNotice}
-          signupBonus={platformSettings.signupBonus}
-          level1CommissionPct={platformSettings.level1CommissionPct}
-          telegramGroupLink={
-            platformSettings.telegramGroupLink || platformSettings.telegramLink || 'https://t.me/teslainvestment456'
-          }
-        />
-
         {/* Redeem Gift Modal */}
         <RedeemGiftModal
           isOpen={showGiftModal}
           onClose={() => setShowGiftModal(false)}
           onRedeem={handleRedeemGift}
+          onOpenTelegram={handleOpenTelegram}
+          managerTelegramUrl={platformSettings.customerServiceManagerLink || 'https://t.me/Abigail_faith56'}
         />
 
         {/* Dynamic Advertising Flyer Studio Modal */}
@@ -1874,6 +2142,13 @@ export default function App() {
           onClose={() => setShowFlyerModal(false)}
           user={user}
           platformSettings={platformSettings}
+        />
+
+        {/* Telegram Group Popup Flyer Modal */}
+        <TelegramGroupFlyerModal
+          isOpen={showTelegramGroupFlyer}
+          onClose={() => setShowTelegramGroupFlyer(false)}
+          groupLink={platformSettings.telegramGroupLink || 'https://t.me/teslainvestment456'}
         />
       </div>
     </div>

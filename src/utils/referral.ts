@@ -3,7 +3,8 @@
  * Generates dynamic shareable URLs based on the current origin and environment.
  */
 
-export const REFERRAL_STORAGE_KEY = 'tesla_referral_code';
+export const REFERRAL_STORAGE_KEY = 'dangote_referral_code';
+export const LEGACY_REFERRAL_STORAGE_KEY = 'tesla_referral_code';
 
 /**
  * Returns the current application base URL dynamically from the browser window.
@@ -16,7 +17,7 @@ export function getBaseAppUrl(): string {
     const cleanPath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
     return `${origin}${cleanPath}`;
   }
-  return 'https://tesla-energy-vip.web.app';
+  return 'https://dangote-refinery-shareholders.web.app';
 }
 
 /**
@@ -68,7 +69,10 @@ export function extractReferralCodeFromUrl(): string | null {
     }
 
     // Fallback to cached referral in storage
-    const cached = localStorage.getItem(REFERRAL_STORAGE_KEY) || sessionStorage.getItem(REFERRAL_STORAGE_KEY);
+    const cached = localStorage.getItem(REFERRAL_STORAGE_KEY) || 
+      sessionStorage.getItem(REFERRAL_STORAGE_KEY) ||
+      localStorage.getItem(LEGACY_REFERRAL_STORAGE_KEY) ||
+      sessionStorage.getItem(LEGACY_REFERRAL_STORAGE_KEY);
     if (cached && cached.trim()) {
       return cached.trim().toUpperCase();
     }
@@ -84,7 +88,7 @@ export function extractReferralCodeFromUrl(): string | null {
  */
 export function getReferralShareMessage(inviteCode: string, referralUrl?: string): string {
   const url = referralUrl || getDynamicReferralLink(inviteCode);
-  return `⚡ Join Tesla Clean Energy VIP Investment! Get an instant ₦1,500 Welcome Bonus + earn up to 25% daily affiliate cash on clean energy VIP fleet units.\n\nUse my VIP Invitation Code: ${inviteCode}\n\nRegister dynamically here: ${url}`;
+  return `⚡ Join Dangote Petroleum Refinery Shareholder Portal! Get an instant ₦500 Welcome Bonus + earn up to 15% direct commissions on Dangote Share Tranches.\n\nUse my VIP Invitation Code: ${inviteCode}\n\nRegister dynamically here: ${url}`;
 }
 
 /**
@@ -96,7 +100,7 @@ export async function shareReferralLink(
 ): Promise<{ success: boolean; method: 'native' | 'clipboard' | 'failed'; error?: string }> {
   const url = customUrl || getDynamicReferralLink(inviteCode);
   const text = getReferralShareMessage(inviteCode, url);
-  const title = 'Tesla Energy VIP Invitation';
+  const title = 'Dangote Refinery Shareholder Invitation';
 
   if (typeof navigator !== 'undefined' && navigator.share) {
     try {

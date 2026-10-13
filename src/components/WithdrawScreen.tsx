@@ -11,10 +11,11 @@ import {
   ArrowRight,
   ShieldAlert,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  Building2
 } from 'lucide-react';
 import { UserState } from '../types';
-import { TeslaLogo } from './TeslaLogo';
+import { DangoteLogo } from './DangoteLogo';
 import { isWithinWithdrawalHours } from '../utils/withdrawalHours';
 import { checkWithdrawalEligibility } from '../utils/withdrawalEligibility';
 
@@ -44,7 +45,7 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
   onGoToRecharge,
   onSuccessWithdraw,
   taxRate = 0.18,
-  minWithdrawal = 800,
+  minWithdrawal = 1500,
   withdrawalStartHour = 9,
   withdrawalEndHour = 17,
   sundayWithdrawalStartHour = 14,
@@ -76,15 +77,14 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
   const { isCreditedByAdmin, hasPurchasedProduct, hasMadeDeposit, isEligible } = eligibility;
 
   const rawPurchasedProduct = 
-    (user.purchasedProducts && user.purchasedProducts.length > 0) ||
-    user.records?.some((r) => r.type === 'purchase');
+    Boolean(user.purchasedProducts && user.purchasedProducts.length > 0);
 
   const rawMadeDeposit = 
-    user.records?.some((r) => r.type === 'recharge' && r.status === 'success') ||
-    user.records?.some((r) => r.type === 'recharge');
+    Boolean(user.records && user.records.some((r) => r.type === 'recharge' && r.status === 'success')) || 
+    user.balance >= 5000;
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/\D/g, '');
+    const val = e.target.value.replace(/[^\d.]/g, '');
     setWithdrawAmount(val);
     setError('');
     setSuccessMsg('');
@@ -94,42 +94,32 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
     setError('');
     setSuccessMsg('');
 
-    // Check operating hours: Mon-Sat 9:00 AM - 5:00 PM, Sunday strictly 2:00 PM - 5:00 PM
+    if (!user.bankAccount) {
+      setError('Please bind a Nigerian commercial bank account first.');
+      return;
+    }
+
     if (!hoursCheck.isAllowed && !allowAdminBypassHours) {
       setError(
-        hoursCheck.errorMessage ||
-        (hoursCheck.isSunday
-          ? `Withdrawals on Sundays are strictly from 2:00 PM to 5:00 PM WAT. Current time is ${hoursCheck.formattedCurrentTime}.`
-          : `Withdrawals are only processed from 9:00 AM to 5:00 PM WAT. Current time is ${hoursCheck.formattedCurrentTime}.`)
+        `Withdrawals are only processed during official hours: ${hoursCheck.isSunday ? '2:00 PM – 5:00 PM on Sundays' : '9:00 AM – 5:00 PM (Mon–Sat)'} (WAT). Current time: ${hoursCheck.formattedCurrentTime}.`
       );
       return;
     }
 
-    // Prerequisite check: VIP Product & Deposit (waived for users credited by admin)
-    if (!isEligible) {
-      if (!hasPurchasedProduct) {
-        setError('Withdrawal Requirement: You must purchase and activate at least one VIP Power Generator product before withdrawing funds.');
-        return;
-      }
-
-      if (!hasMadeDeposit) {
-        setError('Withdrawal Requirement: You must make an account deposit/recharge before requesting withdrawal.');
-        return;
-      }
-    }
-
-    if (!user.bankAccount) {
-      setError('Please add a bank account first before requesting withdrawal');
+    if (!isEligible && !allowAdminBypassHours) {
+      setError(
+        'Requirement Incomplete: You must have at least 1 active share tranche and 1 completed deposit to withdraw dividends.'
+      );
       return;
     }
 
-    if (numAmount < minWithdrawal) {
+    if (isNaN(numAmount) || numAmount < minWithdrawal) {
       setError(`Minimum withdrawal amount is ₦ ${minWithdrawal.toLocaleString()}`);
       return;
     }
 
     if (numAmount > user.balance) {
-      setError(`Insufficient balance! Your current balance is ₦ ${user.balance.toLocaleString()}`);
+      setError(`Insufficient balance. Your liquid balance is ₦ ${user.balance.toLocaleString()}`);
       return;
     }
 
@@ -138,168 +128,167 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
 
   const executeWithdrawal = () => {
     onSuccessWithdraw(numAmount, taxDeduction);
-    setSuccessMsg(`Withdrawal of ₦ ${numAmount.toLocaleString()} submitted successfully! ₦ ${receivedAmount.toLocaleString()} will be credited to ${user.bankAccount?.bankName}.`);
+    setSuccessMsg(`Withdrawal of ₦ ${numAmount.toLocaleString()} submitted successfully! ₦ ${receivedAmount.toLocaleString()} will be settled to ${user.bankAccount?.bankName}.`);
     setWithdrawAmount('');
   };
 
   return (
-    <div className="min-h-screen pb-16 bg-white text-neutral-900">
-      {/* Header (Screenshot 8) */}
-      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100">
+    <div className="min-h-screen pb-20 bg-slate-50 text-slate-900 font-sans">
+      {/* Top Header */}
+      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-[#006837] text-white shadow-md">
         <button
           onClick={onBack}
-          className="p-1 -ml-1 text-neutral-800 hover:bg-neutral-100 rounded-full transition active:scale-95 cursor-pointer"
+          className="p-1.5 -ml-1 text-white hover:bg-white/10 rounded-full transition active:scale-95 cursor-pointer"
+          aria-label="Back"
         >
-          <ChevronLeft className="w-7 h-7" />
+          <ChevronLeft className="w-6 h-6" />
         </button>
 
-        <h1 className="text-base font-bold text-neutral-900">Withdrawal</h1>
+        <div className="text-center">
+          <h1 className="text-base font-black tracking-wide text-white">
+            Dividend Withdrawal
+          </h1>
+          <p className="text-[10px] text-amber-300 font-bold tracking-wider uppercase">
+            Dangote Direct Bank Settlement
+          </p>
+        </div>
 
         <button
           onClick={onGoToRecords}
-          className="p-1 -mr-1 text-orange-500 hover:bg-orange-50 rounded-full transition active:scale-95 cursor-pointer"
+          className="p-1.5 -mr-1 text-amber-300 hover:bg-white/10 rounded-full transition active:scale-95 cursor-pointer flex items-center gap-1"
+          title="Withdrawal Records"
         >
-          <FileClock className="w-6 h-6 stroke-[1.8]" />
+          <FileClock className="w-5 h-5 stroke-[2]" />
         </button>
       </div>
 
-      {/* Top Banner with Balance and Tesla Logo (Screenshot 8) */}
-      <div className="relative h-40 w-full overflow-hidden bg-neutral-900 text-white">
+      {/* Top Banner with Balance */}
+      <div className="relative h-44 w-full overflow-hidden bg-[#006837] border-b border-emerald-600 shadow-md">
         <img
-          src="https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=800&auto=format&fit=crop&q=80"
-          alt="Tesla Fleet"
-          className="w-full h-full object-cover brightness-[0.55]"
+          src="/images-2.jpeg"
+          alt="Dangote Refinery"
+          className="w-full h-full object-cover brightness-[0.45]"
           referrerPolicy="no-referrer"
         />
-        <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#006837] via-[#006837]/60 to-transparent" />
 
-        <div className="absolute inset-0 p-5 flex items-center justify-between">
+        <div className="absolute inset-0 p-5 flex items-center justify-between z-10 text-white">
           <div>
-            <div className="text-2xl sm:text-3xl font-black tracking-tight text-white">
+            <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black uppercase tracking-wider mb-1.5 shadow-xs">
+              <ShieldCheck className="w-3 h-3 text-slate-950" />
+              Available Shareholder Balance
+            </div>
+            <div className="text-3xl font-black tracking-tight text-white font-mono">
               ₦ {user.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
-            <div className="text-xs text-neutral-300 mt-1 font-medium flex items-center gap-1.5">
+            <div className="text-xs text-emerald-100 mt-1 font-medium flex items-center gap-1.5">
               <span>Account balance</span>
               {isCreditedByAdmin && (
-                <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 px-1.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-0.5">
-                  <Sparkles className="w-2.5 h-2.5" /> Admin Credited
+                <span className="bg-amber-400 text-slate-950 px-2 py-0.2 rounded-full text-[10px] font-black flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5" /> Admin Authorized
                 </span>
               )}
             </div>
           </div>
 
-          <div className="opacity-90">
-            <TeslaLogo variant="icon" color="#ffffff" className="w-12 h-12" />
+          <div className="opacity-95 shrink-0 pl-2">
+            <DangoteLogo variant="badge" className="w-14 h-14" />
           </div>
         </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Operating Hours Alert / Status */}
-        <div className={`p-3 rounded-xl border flex items-center justify-between text-xs ${
+      <div className="p-4 space-y-4 max-w-md mx-auto">
+        {/* Operating Hours Alert */}
+        <div className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs shadow-xs ${
           hoursCheck.isAllowed 
-            ? 'bg-emerald-50/70 border-emerald-200 text-emerald-900' 
-            : 'bg-amber-50/80 border-amber-200 text-amber-900'
+            ? 'bg-emerald-50 border-emerald-300 text-emerald-900' 
+            : 'bg-amber-50 border-amber-300 text-amber-900'
         }`}>
-          <div className="flex items-center gap-2">
-            <Clock className={`w-4 h-4 shrink-0 ${hoursCheck.isAllowed ? 'text-[#00c269]' : 'text-amber-600'}`} />
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+              hoursCheck.isAllowed ? 'bg-emerald-100 text-[#006837]' : 'bg-amber-100 text-amber-800'
+            }`}>
+              <Clock className="w-4 h-4" />
+            </div>
             <div>
-              <div className="font-bold flex items-center gap-1.5">
-                <span>{hoursCheck.isSunday ? 'Sunday Withdrawal Hours: 2:00 PM – 5:00 PM' : 'Withdrawal Hours: 9:00 AM – 5:00 PM'}</span>
+              <div className="font-black flex items-center gap-1.5 text-slate-900">
+                <span>{hoursCheck.isSunday ? 'Sunday Hours: 2:00 PM – 5:00 PM' : 'Operating Hours: 9:00 AM – 5:00 PM'}</span>
                 {hoursCheck.isSunday && (
-                  <span className="bg-amber-200/80 text-amber-900 text-[10px] font-bold px-1.5 py-0.2 rounded-full border border-amber-300">
-                    Strict Sunday Schedule
+                  <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded-full">
+                    Sunday
                   </span>
                 )}
               </div>
-              <div className="text-[11px] opacity-85">
-                Current Time: {hoursCheck.formattedCurrentTime} WAT ({hoursCheck.statusText})
+              <div className="text-[11px] text-slate-600 font-medium">
+                WAT Time: {hoursCheck.formattedCurrentTime} ({hoursCheck.statusText})
               </div>
             </div>
           </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0 ${
-            hoursCheck.isAllowed ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800'
+          <span className={`text-[10px] px-2.5 py-1 rounded-full font-black uppercase shrink-0 border ${
+            hoursCheck.isAllowed 
+              ? 'bg-[#006837] text-white border-emerald-600' 
+              : 'bg-amber-400 text-slate-950 border-amber-300'
           }`}>
-            {hoursCheck.isAllowed ? 'Open' : 'Closed'}
+            {hoursCheck.isAllowed ? 'Disbursing' : 'Closed'}
           </span>
         </div>
 
-        {/* Admin Credited Privilege Banner */}
-        {isCreditedByAdmin && (
-          <div className="p-3 rounded-xl bg-gradient-to-r from-emerald-900/10 via-emerald-800/5 to-teal-900/10 border border-emerald-300 text-emerald-950 flex items-start gap-2.5 shadow-2xs">
-            <div className="w-7 h-7 rounded-lg bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-              <ShieldCheck className="w-4 h-4" />
-            </div>
-            <div className="text-xs flex-1 min-w-0">
-              <div className="font-bold text-emerald-900 flex items-center gap-1">
-                <span>Executive Admin Credit Authorization</span>
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded-full font-bold uppercase border border-emerald-200">
-                  Active
-                </span>
-              </div>
-              <p className="text-[11px] text-emerald-800 mt-0.5 leading-snug">
-                Your account has been verified and credited by administration. Standard product purchase and recharge requirements have been unlocked for direct withdrawal.
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Withdrawal Eligibility Requirements Card */}
-        <div className="p-3.5 rounded-xl border border-neutral-200 bg-neutral-50/70 space-y-2.5">
+        {/* Withdrawal Eligibility Checklist Card */}
+        <div className="p-4 rounded-2xl border border-slate-200 bg-white shadow-xs space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-bold text-neutral-800 flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 text-emerald-600" />
-              <span>Withdrawal Requirements</span>
+            <div className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+              <ShieldAlert className="w-4 h-4 text-[#006837]" />
+              <span>Shareholder Verification Status</span>
             </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase border ${
               isEligible
-                ? 'bg-emerald-100 text-emerald-700 border border-emerald-300'
-                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : 'bg-amber-50 text-amber-900 border-amber-300'
             }`}>
               {isCreditedByAdmin 
-                ? 'Admin Authorized' 
+                ? 'Admin Approved' 
                 : isEligible 
-                  ? 'Eligible' 
-                  : 'Action Required'}
+                  ? 'Ready to Settle' 
+                  : 'Requirements Incomplete'}
             </span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            {/* Requirement 1: VIP Product */}
-            <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
-              hasPurchasedProduct ? 'bg-white border-emerald-200' : 'bg-amber-50/60 border-amber-200'
+            {/* Requirement 1: VIP Share Tranche */}
+            <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+              hasPurchasedProduct ? 'bg-slate-50 border-emerald-300' : 'bg-slate-50 border-slate-200'
             }`}>
               <div className="flex items-center gap-2">
-                <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
-                  hasPurchasedProduct ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                  hasPurchasedProduct ? 'bg-emerald-100 text-[#006837]' : 'bg-slate-200 text-slate-600'
                 }`}>
                   <ShoppingBag className="w-3.5 h-3.5" />
                 </div>
                 <div>
-                  <div className="font-semibold text-neutral-800 text-[11px]">VIP Product Purchase</div>
-                  <div className="text-[10px] text-neutral-500">
+                  <div className="font-black text-slate-900 text-[11px]">Tranche Subscription</div>
+                  <div className="text-[10px] text-slate-500 font-medium">
                     {rawPurchasedProduct 
-                      ? `${user.purchasedProducts?.length || 1} Active Unit(s)` 
+                      ? `${user.purchasedProducts?.length || 1} Active Shareholdings` 
                       : isCreditedByAdmin 
-                        ? 'Admin Credit Authorized'
-                        : 'Requires 1 active product'}
+                        ? 'Admin Authorized'
+                        : 'Requires 1 active tranche'}
                   </div>
                 </div>
               </div>
 
               {hasPurchasedProduct ? (
-                <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
+                <span className="text-[10px] font-black text-[#006837] flex items-center gap-0.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{isCreditedByAdmin && !rawPurchasedProduct ? 'Admin Approved' : 'Ready'}</span>
+                  <span>Ready</span>
                 </span>
               ) : (
                 onGoToProducts && (
                   <button
                     type="button"
                     onClick={onGoToProducts}
-                    className="text-[10px] font-bold bg-amber-500 hover:bg-amber-600 text-white px-2 py-1 rounded-md transition flex items-center gap-0.5 cursor-pointer active:scale-95"
+                    className="text-[10px] font-black bg-[#006837] hover:bg-[#00522B] text-white px-2 py-1 rounded-lg transition flex items-center gap-0.5 cursor-pointer shadow-xs"
                   >
-                    <span>Buy VIP</span>
+                    <span>Subscribe</span>
                     <ArrowRight className="w-2.5 h-2.5" />
                   </button>
                 )
@@ -307,40 +296,40 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
             </div>
 
             {/* Requirement 2: Account Deposit */}
-            <div className={`p-2.5 rounded-lg border flex items-center justify-between ${
-              hasMadeDeposit ? 'bg-white border-emerald-200' : 'bg-amber-50/60 border-amber-200'
+            <div className={`p-2.5 rounded-xl border flex items-center justify-between ${
+              hasMadeDeposit ? 'bg-slate-50 border-emerald-300' : 'bg-slate-50 border-slate-200'
             }`}>
               <div className="flex items-center gap-2">
-                <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
-                  hasMadeDeposit ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                  hasMadeDeposit ? 'bg-emerald-100 text-[#006837]' : 'bg-slate-200 text-slate-600'
                 }`}>
                   <Wallet className="w-3.5 h-3.5" />
                 </div>
                 <div>
-                  <div className="font-semibold text-neutral-800 text-[11px]">Account Deposit</div>
-                  <div className="text-[10px] text-neutral-500">
+                  <div className="font-black text-slate-900 text-[11px]">Depository Funding</div>
+                  <div className="text-[10px] text-slate-500 font-medium">
                     {rawMadeDeposit 
                       ? 'Deposit Verified' 
                       : isCreditedByAdmin 
-                        ? 'Admin Credit Verified'
-                        : 'Requires at least 1 deposit'}
+                        ? 'Admin Authorized'
+                        : 'Requires 1 deposit'}
                   </div>
                 </div>
               </div>
 
               {hasMadeDeposit ? (
-                <span className="text-[10px] font-bold text-emerald-600 flex items-center gap-0.5">
+                <span className="text-[10px] font-black text-[#006837] flex items-center gap-0.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{isCreditedByAdmin && !rawMadeDeposit ? 'Admin Approved' : 'Ready'}</span>
+                  <span>Ready</span>
                 </span>
               ) : (
                 onGoToRecharge && (
                   <button
                     type="button"
                     onClick={onGoToRecharge}
-                    className="text-[10px] font-bold bg-[#00c269] hover:bg-[#00ad5e] text-white px-2 py-1 rounded-md transition flex items-center gap-0.5 cursor-pointer active:scale-95"
+                    className="text-[10px] font-black bg-[#006837] hover:bg-[#00522B] text-white px-2 py-1 rounded-lg transition flex items-center gap-0.5 cursor-pointer shadow-xs"
                   >
-                    <span>Deposit</span>
+                    <span>Fund</span>
                     <ArrowRight className="w-2.5 h-2.5" />
                   </button>
                 )
@@ -349,97 +338,110 @@ export const WithdrawScreen: React.FC<WithdrawScreenProps> = ({
           </div>
         </div>
 
-        {/* Bank Account Selector (Screenshot 8) */}
+        {/* Bank Account Selector Card */}
         <button
           onClick={onGoToAddBank}
-          className="w-full border border-neutral-200 rounded-lg p-3.5 flex items-center gap-3 bg-neutral-50/50 hover:bg-neutral-50 transition active:scale-[0.99] text-left cursor-pointer"
+          className="w-full border border-slate-200 rounded-2xl p-4 flex items-center gap-3.5 bg-white hover:bg-slate-50 transition active:scale-[0.99] text-left cursor-pointer shadow-xs"
         >
-          <div className="w-8 h-8 rounded-md bg-emerald-50 text-[#00c269] flex items-center justify-center shrink-0">
-            <CreditCard className="w-5 h-5" />
+          <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center shrink-0 font-bold">
+            <Building2 className="w-5 h-5" />
           </div>
 
           <div className="flex-1 min-w-0">
             {user.bankAccount ? (
               <div>
-                <div className="text-xs font-bold text-neutral-900">
-                  {user.bankAccount.bankName}
+                <div className="text-xs font-black text-slate-900 flex items-center gap-2">
+                  <span>{user.bankAccount.bankName}</span>
+                  <span className="px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[9px] font-black">
+                    Active
+                  </span>
                 </div>
-                <div className="text-[11px] text-neutral-600 font-mono">
+                <div className="text-[11px] text-[#006837] font-mono font-bold mt-0.5">
                   {user.bankAccount.accountNumber} • {user.bankAccount.accountName}
                 </div>
               </div>
             ) : (
-              <span className="text-xs text-neutral-600 font-medium">
-                Please select bank account to withdraw
-              </span>
+              <div>
+                <div className="text-xs font-black text-slate-900">Select Destination Bank Account</div>
+                <div className="text-[11px] text-slate-500 font-medium">Tap to bind your Nigerian commercial bank account</div>
+              </div>
             )}
           </div>
+
+          <ArrowRight className="w-4 h-4 text-slate-400 shrink-0" />
         </button>
 
-        {/* Withdrawal Amount Section */}
-        <div>
-          <h3 className="text-sm font-bold text-neutral-900 mb-2">Withdrawal amount</h3>
-
-          <div className="flex items-center border border-neutral-200 rounded-lg px-3 py-2.5 bg-neutral-50/50 shadow-2xs">
-            <span className="text-sm font-bold text-neutral-700 mr-2">₦</span>
-            <input
-              type="text"
-              value={withdrawAmount}
-              onChange={handleAmountChange}
-              placeholder="Please enter the withdrawal amount"
-              className="w-full text-sm text-neutral-900 bg-transparent placeholder:text-neutral-400 focus:outline-hidden font-medium"
-            />
-          </div>
-
-          {/* Subtext: Received amount and Tax % (Screenshot 8) */}
-          <div className="flex items-center justify-between text-xs text-neutral-700 mt-2 px-1 font-medium">
-            <span>
-              Received amount: ₦{' '}
-              {receivedAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {/* Withdrawal Amount Input Section */}
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+              Withdrawal Amount (NGN)
+            </h3>
+            <span className="text-[11px] text-[#006837] font-bold font-mono">
+              Min: ₦ {minWithdrawal.toLocaleString()}
             </span>
-            <span className="font-semibold text-neutral-500">Tax: {(taxRate * 100).toFixed(0)}%</span>
           </div>
+
+          <div className="relative">
+            <div className="flex items-center bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-3 shadow-2xs focus-within:border-[#006837] transition-colors">
+              <span className="text-base font-black text-[#006837] mr-2 font-mono">₦</span>
+              <input
+                type="text"
+                value={withdrawAmount}
+                onChange={handleAmountChange}
+                placeholder="Enter withdrawal amount"
+                className="w-full text-sm text-slate-900 bg-transparent placeholder:text-slate-400 focus:outline-hidden font-bold font-mono"
+              />
+            </div>
+          </div>
+
+          {/* Subtext: Received amount and Statutory handling fee */}
+          <div className="flex items-center justify-between text-xs text-slate-700 font-bold bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+            <span>
+              Net Settleable: <strong className="text-[#006837] font-mono">₦ {receivedAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+            </span>
+            <span className="text-slate-500 text-[11px]">Tax / Stamp: {(taxRate * 100).toFixed(0)}%</span>
+          </div>
+
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="flex items-center gap-2 p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs font-bold">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{successMsg}</span>
+            </div>
+          )}
         </div>
 
-        {error && (
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{error}</span>
-          </div>
-        )}
-
-        {successMsg && (
-          <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-
-        {/* Withdraw Button */}
+        {/* Primary CTA Button */}
         <button
           onClick={handleInitialClick}
-          className="w-full py-3 rounded-full bg-[#00c269] hover:bg-[#00ad5e] text-white text-sm font-bold shadow-md active:scale-98 transition text-center cursor-pointer"
+          className="w-full py-4 rounded-2xl bg-[#006837] hover:bg-[#00522B] text-white text-sm font-black shadow-md active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer border border-emerald-600 uppercase tracking-wider"
         >
-          Withdraw money now
+          <CreditCard className="w-4 h-4 text-amber-300" />
+          <span>Confirm Dividend Withdrawal</span>
         </button>
 
-        {/* Instructions (Screenshot 8) */}
-        <div className="pt-2 border-t border-neutral-100">
-          <h3 className="text-sm font-bold text-neutral-900 mb-2.5">
-            Withdrawal instructions
+        {/* Shareholder Settlement Instructions */}
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 space-y-2.5 shadow-2xs">
+          <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-[#006837]" />
+            Shareholder Settlement Terms
           </h3>
 
-          <ol className="space-y-2 text-xs text-neutral-600 leading-relaxed font-normal">
-            <li>1. <strong>Prerequisites</strong>: Standard members must purchase and activate at least one VIP Power Generator product and make a verified deposit before submitting withdrawal requests. Accounts credited or authorized by administration have prerequisites waived and enjoy direct withdrawal access.</li>
-            <li>2. Minimum withdrawal amount: ₦{minWithdrawal.toLocaleString()}; maximum withdrawal amount: no limit.</li>
-            <li>3. Withdrawal operating hours are strictly <strong>9:00 AM – 5:00 PM (Monday – Saturday)</strong> and strictly <strong>2:00 PM – 5:00 PM on Sundays (WAT)</strong>. Requests submitted outside this timeframe will not be processed until the next operational window.</li>
-            <li>4. Every withdrawal request is reviewed and audited individually by the Tesla administrative risk and settlement system before bank dispatch.</li>
-            <li>5. {(taxRate * 100).toFixed(0)}% of the withdrawal amount will be deducted for statutory handling and banking fees.</li>
-            <li>6. Multiple withdrawals per day are supported during operational hours once eligibility prerequisites are fulfilled.</li>
+          <ol className="space-y-1.5 text-[11px] text-slate-600 leading-relaxed font-medium">
+            <li>• <strong>Prerequisites</strong>: Shareholder members must maintain an active Dangote Share Tranche and verified funding deposit. Executive admin authorized accounts have prerequisites waived.</li>
+            <li>• <strong>Schedule</strong>: Operational window is strictly <strong>9:00 AM – 5:00 PM (Mon–Sat)</strong> and <strong>2:00 PM – 5:00 PM on Sundays (WAT)</strong>.</li>
+            <li>• <strong>Bank Dispatch</strong>: All disbursements are routed through the automated Nigerian interbank clearing network to your verified commercial account.</li>
+            <li>• <strong>Statutory Levy</strong>: {(taxRate * 100).toFixed(0)}% handling and capital transfer stamp duty is deducted at final settlement.</li>
           </ol>
         </div>
       </div>
     </div>
   );
 };
-

@@ -1,7 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, Zap, Clock, ShieldCheck, ArrowRight, History, Calendar, CheckCircle2 } from 'lucide-react';
-import { UserState } from '../types';
+import { 
+  ChevronLeft, 
+  Zap, 
+  Clock, 
+  ShieldCheck, 
+  ArrowRight, 
+  History, 
+  Calendar, 
+  CheckCircle2, 
+  RefreshCw, 
+  ShieldAlert, 
+  Headset, 
+  Box,
+  TrendingUp
+} from 'lucide-react';
+import { UserState, VIPProduct } from '../types';
 import { calculateProductMaturity, formatTimeUntilNigerianMidnight } from '../utils/nigerianTime';
+import { DangoteLogo } from './DangoteLogo';
 
 interface MyStoreScreenProps {
   user: UserState;
@@ -10,6 +25,9 @@ interface MyStoreScreenProps {
   onGoToProducts?: () => void;
   onCollectDailyYield?: (instanceId?: string) => void;
   onCollectRevenue?: () => void;
+  onNavigateToAdmin?: () => void;
+  onNavigateToCustomerService?: () => void;
+  onRefreshOrders?: () => Promise<void>;
 }
 
 export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
@@ -19,8 +37,13 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
   onGoToProducts,
   onCollectDailyYield,
   onCollectRevenue,
+  onNavigateToAdmin,
+  onNavigateToCustomerService,
+  onRefreshOrders,
 }) => {
+  const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
   const [now, setNow] = useState(Date.now());
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -36,20 +59,32 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
     }
   };
 
-  const products = user.purchasedProducts;
-  const totalDaily = products.reduce((sum, p) => sum + p.dailyIncome, 0);
-  const totalMined = products.reduce((sum, p) => sum + p.dailyIncome * p.daysActive, 0);
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    if (onRefreshOrders) {
+      try {
+        await onRefreshOrders();
+      } catch (err) {
+        console.warn('Orders live sync notice:', err);
+      }
+    }
+    setTimeout(() => setRefreshing(false), 600);
+  };
 
-  // Filter transaction records for revenue collection history (specifically type === 'income')
-  const incomeRecords = (user.records || [])
-    .filter((r) => r.type === 'income')
-    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+  const allProducts = user.purchasedProducts || [];
+  const activeProducts = allProducts.filter((p) => {
+    const maturity = calculateProductMaturity(p, now);
+    return !maturity.isExpired;
+  });
+  const completedProducts = allProducts.filter((p) => {
+    const maturity = calculateProductMaturity(p, now);
+    return maturity.isExpired;
+  });
 
-  const totalCollectedIncome = incomeRecords.reduce((sum, r) => sum + (r.amount || 0), 0);
+  const displayProducts = activeTab === 'active' ? activeProducts : completedProducts;
 
-  // Check if any product has mature daily yield ready to collect (after 12 midnight Nigerian Time)
   let totalClaimableYield = 0;
-  products.forEach((p) => {
+  allProducts.forEach((p) => {
     const maturity = calculateProductMaturity(p, now);
     if (maturity.isMature) {
       totalClaimableYield += maturity.claimableYield;
@@ -59,276 +94,226 @@ export const MyStoreScreen: React.FC<MyStoreScreenProps> = ({
   const midnightCountdown = formatTimeUntilNigerianMidnight(now);
 
   return (
-    <div className="min-h-screen pb-16 bg-neutral-100 text-neutral-900">
-      {/* Top Header */}
-      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shadow-2xs">
-        <button
-          onClick={onBack}
-          className="p-1 -ml-1 text-neutral-800 hover:bg-neutral-100 rounded-full transition active:scale-95 cursor-pointer"
-        >
-          <ChevronLeft className="w-7 h-7" />
-        </button>
+    <div className="min-h-screen pb-24 bg-[#0A192F] text-white">
+      {/* Top Header matching screenshot */}
+      <div className="sticky top-0 z-30 bg-[#002B49] border-b border-white/10 px-4 py-3 flex items-center justify-between shadow-lg">
+        <div className="flex items-center gap-2">
+          <DangoteLogo variant="wordmark" color="#ffffff" className="h-6" />
+        </div>
 
-        <h1 className="text-base font-bold text-neutral-900">My Store</h1>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            className={`p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition cursor-pointer ${refreshing ? 'animate-spin' : ''}`}
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
 
-        <div className="w-7" />
+          {onNavigateToAdmin && (
+            <button
+              onClick={onNavigateToAdmin}
+              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-neutral-950 text-xs font-black shadow-md transition flex items-center gap-1 cursor-pointer"
+            >
+              <ShieldAlert className="w-3.5 h-3.5" />
+              <span>HQ</span>
+            </button>
+          )}
+
+          {onNavigateToCustomerService && (
+            <button
+              onClick={onNavigateToCustomerService}
+              className="p-2 rounded-xl bg-gradient-to-r from-[#002B49] to-[#003B66] hover:brightness-125 text-white font-black shadow-md border border-cyan-400/50 transition cursor-pointer active:scale-95"
+              title="Support"
+            >
+              <Headset className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Top Banner Stats */}
-      <div className="bg-gradient-to-r from-[#00c269] to-emerald-900 text-white p-5 shadow-sm">
+      <div className="p-4 space-y-4">
+        {/* Title & Refresh button */}
         <div className="flex items-center justify-between">
-          <div>
-            <span className="text-xs text-emerald-200 uppercase tracking-wider font-semibold">
-              Active Tesla Fleet
-            </span>
-            <div className="text-3xl font-black mt-0.5">{products.length} Units</div>
-          </div>
-
-          <div className="w-12 h-12 rounded-full bg-white/10 backdrop-blur-xs flex items-center justify-center border border-white/20">
-            <Zap className="w-6 h-6 text-amber-300 fill-amber-300" />
-          </div>
+          <h2 className="text-base font-black text-white">
+            Shareholder Tranche Contracts
+          </h2>
+          <button
+            onClick={handleRefresh}
+            className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-white/20 text-xs">
-          <div>
-            <div className="text-white/80">Daily Combined Yield:</div>
-            <div className="text-base font-extrabold text-white">
-              +₦ {totalDaily.toLocaleString()}/day
-            </div>
-          </div>
-          <div>
-            <div className="text-white/80">Total Harvested:</div>
-            <div className="text-base font-extrabold text-amber-300">
-              ₦ {totalMined.toLocaleString()}
-            </div>
-          </div>
-        </div>
-      </div>
+        {/* Segmented Tabs (Active Orders vs Completed / Expired) */}
+        <div className="grid grid-cols-2 gap-2 bg-[#002B49] p-1.5 rounded-2xl border border-white/10 shadow-md">
+          <button
+            onClick={() => setActiveTab('active')}
+            className={`py-3 rounded-xl text-xs font-extrabold transition cursor-pointer text-center ${
+              activeTab === 'active'
+                ? 'bg-gradient-to-r from-[#006837] to-[#004D28] text-white shadow-lg border border-white/20'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Active Orders ({activeProducts.length})
+          </button>
 
-      <div className="p-3 space-y-4">
-        {products.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center shadow-xs border border-neutral-200 mt-2 space-y-3">
-            <div className="w-16 h-16 rounded-full bg-emerald-50 text-[#00c269] flex items-center justify-center mx-auto">
-              <Zap className="w-8 h-8" />
+          <button
+            onClick={() => setActiveTab('completed')}
+            className={`py-3 rounded-xl text-xs font-extrabold transition cursor-pointer text-center ${
+              activeTab === 'completed'
+                ? 'bg-gradient-to-r from-[#006837] to-[#004D28] text-white shadow-lg border border-white/20'
+                : 'text-neutral-400 hover:text-white'
+            }`}
+          >
+            Completed / Expired ({completedProducts.length})
+          </button>
+        </div>
+
+        {/* Main Content Card (Matching Screenshot exactly) */}
+        {displayProducts.length === 0 ? (
+          <div className="bg-white text-neutral-900 rounded-3xl p-8 text-center shadow-2xl border border-white/20 mt-4 space-y-5">
+            <div className="w-20 h-20 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto shadow-inner border border-purple-100">
+              <Box className="w-10 h-10 stroke-[2]" />
             </div>
-            <h3 className="font-bold text-base text-neutral-900">No Active Store Products</h3>
-            <p className="text-xs text-neutral-500 max-w-xs mx-auto">
-              You haven't activated any Tesla VIP energy plans yet. Choose a plan in the product catalog to start generating daily passive returns!
-            </p>
+
+            <div className="space-y-1.5">
+              <h3 className="font-black text-xl text-neutral-900 tracking-tight">
+                No active shareholdings
+              </h3>
+              <p className="text-xs text-neutral-500 max-w-xs mx-auto leading-relaxed">
+                You don't have any running Dangote Refinery shareholdings right now.
+              </p>
+            </div>
+
             <button
               onClick={handleGoToCatalog}
-              className="mt-2 inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#00c269] hover:bg-[#00ad5e] text-white text-xs font-bold rounded-full shadow-md active:scale-95 transition cursor-pointer"
+              className="w-full py-3.5 px-6 bg-gradient-to-r from-amber-500 to-amber-600 hover:brightness-110 text-neutral-950 text-xs font-black rounded-full shadow-lg active:scale-95 transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>Explore VIP Products</span>
+              <span>Explore Dangote Share Tranches</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         ) : (
-          <>
-            <div className="flex items-center justify-between px-1 pt-1">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-600">
-                Active Energy Subscriptions ({products.length})
-              </h2>
-
+          <div className="space-y-3">
+            {totalClaimableYield > 0 && activeTab === 'active' && (
               <button
                 type="button"
-                onClick={() => totalClaimableYield > 0 && handleCollect()}
-                disabled={totalClaimableYield <= 0}
-                className={`text-xs font-bold px-3 py-1.5 rounded-lg shadow-2xs transition flex items-center gap-1 ${
-                  totalClaimableYield > 0
-                    ? 'text-white bg-emerald-600 hover:bg-emerald-500 animate-pulse cursor-pointer'
-                    : 'text-neutral-400 bg-neutral-800 cursor-not-allowed'
-                }`}
+                onClick={() => handleCollect()}
+                className="w-full py-3 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:brightness-110 text-white rounded-2xl text-xs font-extrabold shadow-lg transition flex items-center justify-center gap-2 cursor-pointer animate-pulse border border-emerald-400/40"
               >
-                {totalClaimableYield > 0 ? (
-                  <>
-                    <Zap className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
-                    <span>Claim Ready (+₦{totalClaimableYield.toLocaleString()})</span>
-                  </>
-                ) : (
-                  <>
-                    <Clock className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Next Drop: 12:00 AM WAT</span>
-                  </>
-                )}
+                <Zap className="w-4 h-4 text-amber-300 fill-amber-300" />
+                <span>Claim All Ready Dividends (+₦ {totalClaimableYield.toLocaleString()})</span>
               </button>
-            </div>
+            )}
 
-            <div className="space-y-3">
-              {products.map((item) => {
-                const maturity = calculateProductMaturity(item, now);
+            {displayProducts.map((item) => {
+              const maturity = calculateProductMaturity(item, now);
 
-                return (
-                  <div
-                    key={item.instanceId}
-                    className="bg-white rounded-xl p-4 shadow-xs border border-neutral-200 space-y-3"
-                  >
-                    <div className="flex gap-3 items-start">
-                      {item.image && (
-                        <div className="relative w-16 h-14 rounded-lg overflow-hidden shrink-0 bg-neutral-900 border border-neutral-200">
-                          <img
-                            src={item.image}
-                            alt={item.title}
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                      )}
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
-                            {item.vipLevel}
-                          </span>
-                          <span className="flex items-center gap-1 text-[11px] text-emerald-600 font-semibold">
-                            <span className="w-2 h-2 rounded-full bg-[#00c269] animate-ping inline-block" />
-                            {maturity.isExpired ? 'Completed' : 'Online & Generating'}
-                          </span>
-                        </div>
-                        <h3 className="text-sm font-bold text-neutral-900 mt-1 truncate">
-                          {item.title}
-                        </h3>
-                      </div>
-
-                      <div className="text-right shrink-0">
-                        <div className="text-xs font-bold text-[#00c269]">
-                          +₦ {item.dailyIncome.toLocaleString()}/day
-                        </div>
-                        <span className="text-[10px] text-neutral-400 font-medium">Daily Midnight Drop</span>
-                      </div>
-                    </div>
-
-                    {/* Progress */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-[11px] text-neutral-500 font-medium">
-                        <span>Runtime: Day {item.daysActive || 0} of {item.validityDays}</span>
-                        <span>{maturity.progressPct.toFixed(0)}% completed</span>
-                      </div>
-                      <div className="w-full bg-neutral-100 h-2 rounded-full overflow-hidden">
-                        <div
-                          className="bg-[#00c269] h-full rounded-full transition-all duration-500"
-                          style={{ width: `${maturity.progressPct}%` }}
+              return (
+                <div
+                  key={item.instanceId}
+                  className="bg-[#002B49]/90 backdrop-blur-md rounded-2xl p-4 shadow-xl border border-white/15 space-y-3"
+                >
+                  <div className="flex gap-3.5 items-start">
+                    {item.image && (
+                      <div className="relative w-16 h-14 rounded-xl overflow-hidden shrink-0 bg-neutral-900 border border-white/10">
+                        <img
+                          src={item.image}
+                          alt={item.title}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
                         />
                       </div>
+                    )}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-neutral-950 text-[10px] font-black uppercase">
+                          {item.vipLevel}
+                        </span>
+                        <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-bold">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+                          {maturity.isExpired ? 'Completed' : 'Active Dividend'}
+                        </span>
+                      </div>
+                      <h3 className="text-sm font-black text-white mt-1 truncate">
+                        {item.title}
+                      </h3>
                     </div>
 
-                    {/* Detailed Stats */}
-                    <div className="grid grid-cols-3 gap-2 bg-neutral-50 p-2.5 rounded-lg text-center text-xs">
-                      <div>
-                        <span className="text-[10px] text-neutral-400 block">Total Target</span>
-                        <span className="font-bold text-neutral-800">₦ {item.totalIncome.toLocaleString()}</span>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs font-black text-amber-400 font-mono">
+                        +₦ {item.dailyIncome.toLocaleString()}/day
                       </div>
-                      <div>
-                        <span className="text-[10px] text-neutral-400 block">Harvested</span>
-                        <span className="font-bold text-emerald-600">₦ {maturity.currentIncome.toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-neutral-400 block">Remaining</span>
-                        <span className="font-bold text-neutral-700">{Math.max(0, item.validityDays - (item.daysActive || 0))} days</span>
-                      </div>
-                    </div>
-
-                    {/* Midnight Drop Action & Countdown */}
-                    <div className="pt-1">
-                      {maturity.isMature ? (
-                        <button
-                          type="button"
-                          onClick={() => handleCollect(item.instanceId)}
-                          className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold active:scale-98 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md animate-pulse"
-                        >
-                          <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-                          <span>Claim Daily Yield (+₦ {maturity.claimableYield.toLocaleString()})</span>
-                        </button>
-                      ) : maturity.isExpired ? (
-                        <div className="w-full py-2 bg-neutral-100 text-neutral-500 rounded-lg text-xs font-medium text-center border border-neutral-200">
-                          Fleet Contract Completed ({item.validityDays} Days)
-                        </div>
-                      ) : (
-                        <div
-                          className="w-full py-2 bg-neutral-900 text-white rounded-lg text-xs font-medium flex items-center justify-center gap-2 border border-neutral-800 select-none"
-                        >
-                          <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span>
-                            Next Income Drop (12:00 AM WAT) in:{' '}
-                            <strong className="font-mono text-emerald-300 font-semibold">
-                              {String(maturity.hoursLeft).padStart(2, '0')}h {String(maturity.minutesLeft).padStart(2, '0')}m {String(maturity.secondsLeft).padStart(2, '0')}s
-                            </strong>
-                          </span>
-                        </div>
-                      )}
+                      <span className="text-[10px] text-neutral-400 font-medium">Daily Drop</span>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          </>
-        )}
 
-        {/* Revenue Collection History (Filtered for type === 'income') */}
-        <div className="pt-2 space-y-2.5">
-          <div className="flex items-center justify-between px-1">
-            <div className="flex items-center gap-1.5">
-              <History className="w-4 h-4 text-emerald-600" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-neutral-700">
-                Revenue Collection History ({incomeRecords.length})
-              </h2>
-            </div>
-            {incomeRecords.length > 0 && (
-              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                Total: +₦ {totalCollectedIncome.toLocaleString()}
-              </span>
-            )}
-          </div>
+                  {/* Progress */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] text-neutral-300 font-medium">
+                      <span>Runtime: Day {item.daysActive || 0} of {item.validityDays}</span>
+                      <span>{maturity.progressPct.toFixed(0)}% completed</span>
+                    </div>
+                    <div className="w-full bg-neutral-950 h-2 rounded-full overflow-hidden border border-white/10">
+                      <div
+                        className="bg-amber-400 h-full rounded-full transition-all duration-500"
+                        style={{ width: `${maturity.progressPct}%` }}
+                      />
+                    </div>
+                  </div>
 
-          {incomeRecords.length === 0 ? (
-            <div className="bg-white rounded-xl p-5 text-center shadow-xs border border-neutral-200 space-y-1.5">
-              <Clock className="w-6 h-6 mx-auto text-neutral-300" />
-              <p className="text-xs font-semibold text-neutral-700">No revenue collections yet</p>
-              <p className="text-[11px] text-neutral-400 max-w-xs mx-auto">
-                Daily energy earnings claimed at 12:00 AM midnight (WAT) will automatically appear in this history log.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {incomeRecords.map((record) => (
-                <div
-                  key={record.id}
-                  className="bg-white rounded-xl p-3.5 shadow-xs border border-neutral-200 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 border border-emerald-100">
-                      <Zap className="w-4 h-4 fill-emerald-500 text-emerald-600" />
+                  {/* Detailed Stats */}
+                  <div className="grid grid-cols-3 gap-2 bg-neutral-950/60 p-2.5 rounded-xl text-center text-xs border border-white/5">
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block">Total Return</span>
+                      <span className="font-bold text-white font-mono">₦ {item.totalIncome.toLocaleString()}</span>
                     </div>
                     <div>
-                      <div className="text-xs font-bold text-neutral-900">
-                        {record.title || 'Daily Energy Generation Income'}
-                      </div>
-                      <div className="text-[11px] text-neutral-400 flex items-center gap-1 mt-0.5">
-                        <Calendar className="w-3 h-3 text-neutral-400" />
-                        <span>{new Date(record.timestamp).toLocaleString()}</span>
-                      </div>
-                      {record.details && (
-                        <div className="text-[10px] text-neutral-500 font-mono mt-0.5">
-                          {record.details}
-                        </div>
-                      )}
+                      <span className="text-[10px] text-neutral-400 block">Harvested</span>
+                      <span className="font-bold text-emerald-400 font-mono">₦ {maturity.currentIncome.toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-neutral-400 block">Remaining</span>
+                      <span className="font-bold text-neutral-300 font-mono">{Math.max(0, item.validityDays - (item.daysActive || 0))} days</span>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <div className="text-sm font-extrabold text-[#00c269]">
-                      +₦ {record.amount.toLocaleString()}
-                    </div>
-                    <span className="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 mt-1">
-                      <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
-                      Settled
-                    </span>
+                  {/* Action */}
+                  <div className="pt-1">
+                    {maturity.isMature ? (
+                      <button
+                        type="button"
+                        onClick={() => handleCollect(item.instanceId)}
+                        className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold active:scale-98 transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md animate-pulse"
+                      >
+                        <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                        <span>Claim Yield (+₦ {maturity.claimableYield.toLocaleString()})</span>
+                      </button>
+                    ) : maturity.isExpired ? (
+                      <div className="w-full py-2 bg-neutral-950 text-neutral-400 rounded-xl text-xs font-medium text-center border border-white/10">
+                        Tranche Contract Completed ({item.validityDays} Days)
+                      </div>
+                    ) : (
+                      <div className="w-full py-2 bg-neutral-950 text-neutral-300 rounded-xl text-xs font-medium flex items-center justify-center gap-2 border border-white/10 select-none">
+                        <Clock className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>
+                          Next Dividend in:{' '}
+                          <strong className="font-mono text-amber-300 font-bold">
+                            {midnightCountdown.formattedString}
+                          </strong>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

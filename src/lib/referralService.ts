@@ -3,6 +3,7 @@ import { db } from './firebase';
 import { UserState, TeamMember, TransactionRecord, PlatformSettings } from '../types';
 import { getLocalAccounts, saveLocalAccounts, LocalAccount } from './authService';
 import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
 /**
  * Referral & Multi-tier Team Commission Engine
@@ -129,7 +130,8 @@ export async function persistUserUpdates(
       const dDigits = cleanNigerianPhoneDigits(data.phone || '');
       if (dDigits === digits || d.id === digits || (updatedState?.id && d.id === updatedState.id)) {
         const nextData = updater(data);
-        await setDoc(doc(db, 'users', d.id), { ...nextData, updatedAt: Date.now() }, { merge: true });
+        const payload = sanitizeForFirestore({ ...nextData, updatedAt: Date.now() });
+        await setDoc(doc(db, 'users', d.id), payload, { merge: true });
         if (!updatedState) updatedState = nextData;
         matchedAny = true;
       }
@@ -140,10 +142,12 @@ export async function persistUserUpdates(
       const directSnap = await getDoc(directRef);
       if (directSnap.exists()) {
         const nextData = updater(directSnap.data() as UserState);
-        await setDoc(directRef, { ...nextData, updatedAt: Date.now() }, { merge: true });
+        const payload = sanitizeForFirestore({ ...nextData, updatedAt: Date.now() });
+        await setDoc(directRef, payload, { merge: true });
         if (!updatedState) updatedState = nextData;
       } else if (updatedState) {
-        await setDoc(directRef, { ...updatedState, updatedAt: Date.now() }, { merge: true }).catch(() => {});
+        const payload = sanitizeForFirestore({ ...updatedState, updatedAt: Date.now() });
+        await setDoc(directRef, payload, { merge: true }).catch(() => {});
       }
     }
   } catch (err) {
@@ -338,6 +342,22 @@ export async function distributeProductPurchaseCommissions(params: {
           details: `${l1Pct}% direct affiliate bonus from ${buyerPhone}'s activation of ${productTitle} (₦${amount.toLocaleString()})`,
         };
 
+        // Save to dedicated commissions collection in Firestore
+        try {
+          const commPayload = sanitizeForFirestore({
+            id: recId1,
+            uplinePhone: lvl1.userState.phone,
+            uplineInviteCode: lvl1.userState.inviteCode,
+            buyerPhone,
+            level: 1,
+            amount: comm1,
+            productTitle,
+            timestamp: now,
+            status: 'success',
+          });
+          setDoc(doc(db, 'commissions', recId1), commPayload).catch(() => {});
+        } catch {}
+
         await persistUserUpdates(lvl1.userState.phone, (prev) => {
           // Check idempotency: If this commission has already been credited to this upline, skip!
           if (prev.records?.some((r) => r.id === recId1)) {
@@ -418,6 +438,22 @@ export async function distributeProductPurchaseCommissions(params: {
               details: `${l2Pct}% team affiliate bonus from ${buyerPhone}'s activation of ${productTitle} (₦${amount.toLocaleString()})`,
             };
 
+            // Save to dedicated commissions collection in Firestore
+            try {
+              const commPayload2 = sanitizeForFirestore({
+                id: recId2,
+                uplinePhone: lvl2.userState.phone,
+                uplineInviteCode: lvl2.userState.inviteCode,
+                buyerPhone,
+                level: 2,
+                amount: comm2,
+                productTitle,
+                timestamp: now,
+                status: 'success',
+              });
+              setDoc(doc(db, 'commissions', recId2), commPayload2).catch(() => {});
+            } catch {}
+
             await persistUserUpdates(lvl2.userState.phone, (prev) => {
               if (prev.records?.some((r) => r.id === recId2)) {
                 return prev;
@@ -496,6 +532,22 @@ export async function distributeProductPurchaseCommissions(params: {
                   timestamp: now,
                   details: `${l3Pct}% team affiliate bonus from ${buyerPhone}'s activation of ${productTitle} (₦${amount.toLocaleString()})`,
                 };
+
+                // Save to dedicated commissions collection in Firestore
+                try {
+                  const commPayload3 = sanitizeForFirestore({
+                    id: recId3,
+                    uplinePhone: lvl3.userState.phone,
+                    uplineInviteCode: lvl3.userState.inviteCode,
+                    buyerPhone,
+                    level: 3,
+                    amount: comm3,
+                    productTitle,
+                    timestamp: now,
+                    status: 'success',
+                  });
+                  setDoc(doc(db, 'commissions', recId3), commPayload3).catch(() => {});
+                } catch {}
 
                 await persistUserUpdates(lvl3.userState.phone, (prev) => {
                   if (prev.records?.some((r) => r.id === recId3)) {

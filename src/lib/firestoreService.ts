@@ -22,6 +22,7 @@ import {
 import { INITIAL_PRODUCTS, INITIAL_GIFT_CODES, INITIAL_PLATFORM_SETTINGS } from '../data/initialData';
 import { distributeProductPurchaseCommissions } from './referralService';
 import { normalizePurchasedProducts, normalizeProductCatalog, getCanonicalProduct } from '../utils/productUtils';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
 export enum OperationType {
   CREATE = 'create',
@@ -222,7 +223,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
       }
     });
   } catch (err) {
-    console.warn('Firestore users on-demand fetch notice (using local registry fallback):', err);
+    // Seamless local registry fallback if Firestore read is offline
   }
 
   // Merge registered accounts from local registry (ensures zero data loss and offline admin functionality)
@@ -366,8 +367,8 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
       }
       if (data.platformSettings) {
         const s = { ...data.platformSettings };
-        if (s.signupBonus === 2300 || s.signupBonus === 500) s.signupBonus = 1500;
-        if (s.minWithdrawal === 2000 || s.minWithdrawal === 2300 || !s.minWithdrawal) s.minWithdrawal = 800;
+        if (s.signupBonus !== 1000) s.signupBonus = 1000;
+        if (s.minWithdrawal !== 1500) s.minWithdrawal = 1500;
         platformSettings = {
           ...INITIAL_PLATFORM_SETTINGS,
           ...s,
@@ -383,7 +384,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
       });
     }
   } catch (err) {
-    console.warn('System app_state on-demand fetch notice:', err);
+    // Seamless local state fallback if app_state is unavailable
   }
 
   // Compile all withdrawal requests
@@ -503,7 +504,8 @@ export async function resolveUserDocRef(
     const fallbackData = localAccounts[matchedKey].userState;
     const newRef = doc(db, 'users', targetUid);
     try {
-      await setDoc(newRef, { ...fallbackData, updatedAt: Date.now() }, { merge: true });
+      const payload = sanitizeForFirestore({ ...fallbackData, updatedAt: Date.now() });
+      await setDoc(newRef, payload, { merge: true });
       return { ref: newRef, data: fallbackData, docId: targetUid };
     } catch {}
   }
@@ -578,20 +580,23 @@ export async function adminUpdateUserBalanceInFirebase(
 
   // 3. Update active session in localStorage if matching
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
         sessionUser.balance = newBalance;
         sessionUser.records = updatedRecords;
         sessionUser.creditedByAdmin = true;
+        localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
       }
     }
   } catch {}
 
   // 4. Dispatch real-time cross-component and cross-tab events
+  window.dispatchEvent(new CustomEvent('dangote_user_balance_updated', { detail: { balance: newBalance, creditedByAdmin: true } }));
   window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: newBalance, creditedByAdmin: true } }));
+  window.dispatchEvent(new CustomEvent('dangote_user_state_updated', { detail: { balance: newBalance, records: updatedRecords, creditedByAdmin: true } }));
   window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { balance: newBalance, records: updatedRecords, creditedByAdmin: true } }));
 }
 
@@ -667,15 +672,18 @@ export async function adminGrantUserBonusInFirebase(
   } catch {}
 
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
         sessionUser.balance = (Number(sessionUser.balance) || 0) + amount;
         sessionUser.records = [bonusRec, ...(sessionUser.records || [])];
         sessionUser.creditedByAdmin = true;
+        localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+        window.dispatchEvent(new CustomEvent('dangote_user_balance_updated', { detail: { balance: sessionUser.balance, creditedByAdmin: true } }));
         window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: sessionUser.balance, creditedByAdmin: true } }));
+        window.dispatchEvent(new CustomEvent('dangote_user_state_updated', { detail: { balance: sessionUser.balance, records: sessionUser.records, creditedByAdmin: true } }));
         window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { balance: sessionUser.balance, records: sessionUser.records, creditedByAdmin: true } }));
       }
     }
@@ -744,13 +752,15 @@ export async function adminSetUserCreditedStatusInFirebase(
 
   // Update active session in localStorage if matching
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
         sessionUser.creditedByAdmin = isCredited;
         sessionUser.records = updatedRecords;
+        localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+        window.dispatchEvent(new CustomEvent('dangote_user_state_updated', { detail: { creditedByAdmin: isCredited, records: updatedRecords } }));
         window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { creditedByAdmin: isCredited, records: updatedRecords } }));
       }
     }
@@ -872,14 +882,17 @@ export async function adminAssignProductToUserInFirebase(
 
   // 3. Update active session if target matches current user
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone || sessionUser.id === targetUid) {
         sessionUser.purchasedProducts = [...(sessionUser.purchasedProducts || []), newInstance];
         sessionUser.records = [grantRec, ...(sessionUser.records || [])];
+        localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+        window.dispatchEvent(new CustomEvent('dangote_user_state_updated', { detail: sessionUser }));
         window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: sessionUser }));
+        window.dispatchEvent(new CustomEvent('dangote_product_assigned', { detail: { product: newInstance } }));
         window.dispatchEvent(new CustomEvent('tesla_product_assigned', { detail: { product: newInstance } }));
       }
     }
@@ -1048,14 +1061,16 @@ export async function adminApproveWithdrawalInFirebase(
 
   // 4. Update active session if matching
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
         sessionUser.records = (sessionUser.records || []).map((r: TransactionRecord) =>
           r.id === withdrawalId ? { ...r, status: 'success' as const } : r
         );
+        localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
         localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+        window.dispatchEvent(new CustomEvent('dangote_user_records_updated'));
         window.dispatchEvent(new CustomEvent('tesla_user_records_updated'));
       }
     }
@@ -1173,7 +1188,7 @@ export async function adminRejectWithdrawalInFirebase(
 
   // 4. Update active session in localStorage
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
@@ -1194,7 +1209,9 @@ export async function adminRejectWithdrawalInFirebase(
             details: `Reversal of rejected withdrawal payout #${withdrawalId.slice(-6)}`,
           };
           sessionUser.records = [refundRecord, ...updatedRecords];
+          localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
           localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+          window.dispatchEvent(new CustomEvent('dangote_user_balance_updated', { detail: { balance: sessionUser.balance } }));
           window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: sessionUser.balance } }));
         }
       }
@@ -1419,7 +1436,7 @@ export async function adminApproveDepositInFirebase(
   // 4. Update active session in localStorage if matching current user
   const cleanPhone = cleanNigerianPhoneDigits(targetPhone || targetUid);
   try {
-    const sessionRaw = localStorage.getItem('tesla_app_state_v2');
+    const sessionRaw = localStorage.getItem('dangote_app_state_v2') || localStorage.getItem('tesla_app_state_v2');
     if (sessionRaw) {
       const sessionUser = JSON.parse(sessionRaw);
       if (cleanPhone && cleanNigerianPhoneDigits(sessionUser.phone) === cleanPhone) {
@@ -1447,8 +1464,11 @@ export async function adminApproveDepositInFirebase(
               details: `Approved by Treasury Auditor #${depositId.slice(-6)}`,
             });
           }
+          localStorage.setItem('dangote_app_state_v2', JSON.stringify(sessionUser));
           localStorage.setItem('tesla_app_state_v2', JSON.stringify(sessionUser));
+          window.dispatchEvent(new CustomEvent('dangote_user_balance_updated', { detail: { balance: sessionUser.balance } }));
           window.dispatchEvent(new CustomEvent('tesla_user_balance_updated', { detail: { balance: sessionUser.balance } }));
+          window.dispatchEvent(new CustomEvent('dangote_user_state_updated', { detail: { balance: sessionUser.balance, records: sessionUser.records } }));
           window.dispatchEvent(new CustomEvent('tesla_user_state_updated', { detail: { balance: sessionUser.balance, records: sessionUser.records } }));
         }
       }

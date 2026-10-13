@@ -1,25 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Coins, CalendarCheck2, Headset, CheckCircle2, Zap, ArrowRight, Flame, Crown } from 'lucide-react';
+import { DollarSign, Coins, CalendarCheck2, Headset, CheckCircle2, Zap, ArrowRight, Flame, Crown, TrendingUp, Users, ShieldCheck, Award, Send } from 'lucide-react';
 import { Ticker } from './Ticker';
 import { PLATFORM_TICKERS } from '../data/initialData';
 import { UserState } from '../types';
-import { TeslaLogo } from './TeslaLogo';
+import { DangoteLogo } from './DangoteLogo';
 
 interface HomeScreenProps {
   user: UserState;
-  onNavigate: (screen: 'recharge' | 'withdraw' | 'customer_service' | 'my_store') => void;
+  onNavigate: (screen: 'recharge' | 'withdraw' | 'customer_service' | 'my_store' | 'tasks') => void;
   onOpenGifts: () => void;
   onGoToProducts: () => void;
-  onGoToPromoters?: () => void;
-  onOpenNotify: () => void;
+  onGoToOrders?: () => void;
   onDailyCheckIn: () => void;
+  onOpenTelegramGroupFlyer?: () => void;
 }
 
-const HERO_IMAGES = [
-  'https://images.unsplash.com/photo-1698870404396-7c089c2c62c2?w=900&auto=format&fit=crop&q=80', // Tesla Cybertruck
-  'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=900&auto=format&fit=crop&q=80', // Tesla Model 3
-  'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=900&auto=format&fit=crop&q=80', // Tesla Model Y
-  'https://images.unsplash.com/photo-1571127236794-81c0bbfe1ce3?w=900&auto=format&fit=crop&q=80', // Tesla Supercharging Network
+const DANGOTE_HERO_IMAGES = [
+  '/Rfnry-Blog.png', // Everything To Know About The Dangote Refinery IPO on Flutterwave
+  '/images-2.jpeg', // Dangote Refinery Facility
+  'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?w=900&auto=format&fit=crop&q=80', // Dangote Refinery
+  'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?w=900&auto=format&fit=crop&q=80', // Petrochemical
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -27,15 +27,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigate,
   onOpenGifts,
   onGoToProducts,
-  onGoToPromoters,
-  onOpenNotify,
+  onGoToOrders,
   onDailyCheckIn,
+  onOpenTelegramGroupFlyer,
 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % HERO_IMAGES.length);
+      setCurrentSlide((prev) => (prev + 1) % DANGOTE_HERO_IMAGES.length);
     }, 4500);
     return () => clearInterval(timer);
   }, []);
@@ -44,14 +44,41 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const hasCheckedInToday = user.lastCheckInDate === today;
 
   return (
-    <div className="min-h-screen pb-24 bg-neutral-50 text-neutral-900">
+    <div className="min-h-screen pb-24 bg-slate-50 text-slate-900 font-sans">
+      {/* Top Header / Status Bar */}
+      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md px-4 py-3 flex items-center justify-between border-b border-slate-200 shadow-xs">
+        <div className="flex items-center gap-2">
+          <DangoteLogo variant="wordmark" color="#1d4ed8" className="h-6" />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <div className="bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-700 text-white px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1 shadow-xs border border-sky-300/40">
+            <Crown className="w-3.5 h-3.5 fill-white" />
+            <span>VIP 1</span>
+          </div>
+
+          <button
+            onClick={onDailyCheckIn}
+            disabled={hasCheckedInToday}
+            className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
+              hasCheckedInToday
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+            }`}
+          >
+            <CalendarCheck2 className="w-3.5 h-3.5" />
+            <span>{hasCheckedInToday ? 'Checked In' : 'Check-in'}</span>
+          </button>
+        </div>
+      </div>
+
       {/* Top Hero Carousel */}
-      <div className="relative h-64 sm:h-72 w-full overflow-hidden bg-neutral-900 shadow-md">
-        {HERO_IMAGES.map((img, idx) => (
+      <div className="relative h-52 sm:h-60 w-full overflow-hidden bg-slate-900 shadow-md">
+        {DANGOTE_HERO_IMAGES.map((img, idx) => (
           <img
             key={idx}
             src={img}
-            alt="Tesla Energy"
+            alt="Dangote Refinery"
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
               idx === currentSlide ? 'opacity-100' : 'opacity-0'
             }`}
@@ -59,230 +86,224 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         ))}
 
-        {/* Gradient overlays */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70" />
+        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-black/50" />
 
-        {/* Brand header */}
-        <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 pt-4">
-          <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">
-            <TeslaLogo variant="icon" color="#ffffff" className="w-5 h-5" />
-            <span className="text-xs font-bold tracking-widest text-white">TESLA</span>
+        <div className="absolute inset-0 p-4.5 flex flex-col justify-between z-10">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-sky-400/40 text-[10px] font-black text-sky-200 uppercase tracking-wider">
+              <ShieldCheck className="w-3 h-3 text-sky-400" />
+              <span>Official Flutterwave IPO Partner</span>
+            </div>
           </div>
 
-          <button
-            onClick={onOpenNotify}
-            className="text-xs px-3 py-1 bg-white/20 hover:bg-white/30 backdrop-blur-md text-white font-medium rounded-full border border-white/20 transition active:scale-95"
-          >
-            Announcement
-          </button>
+          <div className="space-y-1">
+            <h2 className="text-base sm:text-lg font-black text-white leading-snug drop-shadow-md">
+              Everything To Know About The Dangote Refinery IPO on Flutterwave
+            </h2>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-xs text-sky-300 font-bold">Dangote Share Tranches Live Now</span>
+              <button
+                onClick={onGoToProducts}
+                className="px-3.5 py-1 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-black shadow-md flex items-center gap-1 transition cursor-pointer"
+              >
+                <span>Acquire</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Carousel indicators */}
-        <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5 z-10">
-          {HERO_IMAGES.map((_, idx) => (
+        <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-10">
+          {DANGOTE_HERO_IMAGES.map((_, idx) => (
             <div
               key={idx}
               className={`h-1.5 rounded-full transition-all duration-300 ${
-                idx === currentSlide ? 'w-5 bg-white' : 'w-1.5 bg-white/50'
+                idx === currentSlide ? 'w-5 bg-sky-400' : 'w-1.5 bg-white/50'
               }`}
             />
           ))}
         </div>
       </div>
 
-      <div className="px-4 space-y-3 -mt-4 relative z-20">
-        {/* Quick Action Grid (matching screenshot 4) */}
-        <div className="bg-white rounded-xl shadow-xs border border-neutral-100 p-3 grid grid-cols-4 gap-2 text-center">
-          {/* Recharge */}
-          <button
-            onClick={() => onNavigate('recharge')}
-            className="flex flex-col items-center group active:scale-95 transition"
-          >
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-[#00c269] flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-emerald-100">
-              <DollarSign className="w-6 h-6 stroke-[2.2]" />
+      <div className="px-4 space-y-3.5 -mt-3 relative z-20">
+        {/* Available Balance Card */}
+        <div className="bg-gradient-to-br from-[#1e40af] via-[#1d4ed8] to-[#0f172a] text-white rounded-2xl shadow-xl border border-sky-400/30 p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[11px] font-black tracking-wider text-sky-200 uppercase">
+                Available Wallet Balance
+              </div>
+              <div className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-0.5 flex items-baseline gap-2 font-mono">
+                <span>₦ {(user?.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="text-xs font-mono font-medium text-sky-300">
+                  ≈ ${((user?.balance ?? 0) / 1500).toFixed(2)}
+                </span>
+              </div>
             </div>
-            <span className="text-xs text-neutral-700 font-medium">Recharge</span>
+
+            <div className="text-right">
+              <div className="text-[11px] font-black tracking-wider text-sky-200 uppercase">
+                Total Dividends
+              </div>
+              <div className="text-sm sm:text-base font-black text-sky-300 font-mono mt-0.5">
+                +₦ {(user?.cumulativeIncome ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            <button
+              onClick={() => onNavigate('recharge')}
+              className="py-3 px-4 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 text-xs font-black shadow-md spring-press transition-butter flex items-center justify-center gap-2 cursor-pointer border border-sky-200"
+            >
+              <DollarSign className="w-4 h-4 fill-slate-950 text-slate-950" />
+              <span>Deposit Funds</span>
+            </button>
+
+            <button
+              onClick={() => onNavigate('withdraw')}
+              className="py-3 px-4 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold shadow-md spring-press transition-butter flex items-center justify-center gap-2 cursor-pointer border border-white/20"
+            >
+              <Coins className="w-4 h-4 text-sky-300" />
+              <span>Withdraw Yield</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Quick Action Grid */}
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-3.5 grid grid-cols-4 gap-2 text-center">
+          {/* VIP */}
+          <button
+            onClick={onGoToProducts}
+            className="flex flex-col items-center group spring-press cursor-pointer"
+          >
+            <div className="w-11 h-11 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center mb-1.5 shadow-2xs border border-blue-300/40 group-hover:bg-blue-500/20 transition-butter">
+              <Crown className="w-5 h-5 stroke-[2]" />
+            </div>
+            <span className="text-xs text-slate-800 font-black">VIP Tranches</span>
           </button>
 
-          {/* Withdraw */}
+          {/* Tasks */}
           <button
-            onClick={() => onNavigate('withdraw')}
-            className="flex flex-col items-center group active:scale-95 transition"
+            onClick={() => onNavigate('tasks')}
+            className="flex flex-col items-center group spring-press cursor-pointer"
           >
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-[#00c269] flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-emerald-100">
-              <Coins className="w-6 h-6 stroke-[2.2]" />
+            <div className="w-11 h-11 rounded-xl bg-sky-500/10 text-sky-600 flex items-center justify-center mb-1.5 shadow-2xs border border-sky-300/40 group-hover:bg-sky-500/20 transition-butter">
+              <Award className="w-5 h-5 stroke-[2]" />
             </div>
-            <span className="text-xs text-neutral-700 font-medium">Withdraw</span>
+            <span className="text-xs text-slate-800 font-black">Tasks &amp; Gifts</span>
           </button>
 
-          {/* Redeem gifts */}
+          {/* Team */}
           <button
-            onClick={onOpenGifts}
-            className="flex flex-col items-center group active:scale-95 transition"
+            onClick={() => {}}
+            className="flex flex-col items-center group spring-press cursor-pointer"
           >
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-[#00c269] flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-emerald-100">
-              <CalendarCheck2 className="w-6 h-6 stroke-[2.2]" />
+            <div className="w-11 h-11 rounded-xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center mb-1.5 shadow-2xs border border-indigo-300/40 group-hover:bg-indigo-500/20 transition-butter">
+              <Users className="w-5 h-5 stroke-[2]" />
             </div>
-            <span className="text-xs text-neutral-700 font-medium">Redeem gifts</span>
+            <span className="text-xs text-slate-800 font-black">Team ({user.teamMembers?.length || 0})</span>
           </button>
 
-          {/* Help */}
+          {/* Roadmap */}
           <button
-            onClick={() => onNavigate('customer_service')}
-            className="flex flex-col items-center group active:scale-95 transition"
+            onClick={onGoToProducts}
+            className="flex flex-col items-center group spring-press cursor-pointer"
           >
-            <div className="w-12 h-12 rounded-xl bg-emerald-50 text-[#00c269] flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-emerald-100">
-              <Headset className="w-6 h-6 stroke-[2.2]" />
+            <div className="w-11 h-11 rounded-xl bg-cyan-500/10 text-cyan-600 flex items-center justify-center mb-1.5 shadow-2xs border border-cyan-300/40 group-hover:bg-cyan-500/20 transition-butter">
+              <TrendingUp className="w-5 h-5 stroke-[2]" />
             </div>
-            <span className="text-xs text-neutral-700 font-medium">Help</span>
+            <span className="text-xs text-slate-800 font-black">Roadmap</span>
           </button>
         </div>
+
+        {/* Official Telegram Group Syndicate Flyer Banner */}
+        <button
+          onClick={onOpenTelegramGroupFlyer || (() => window.open('https://t.me/teslainvestment456', '_blank'))}
+          className="w-full bg-gradient-to-r from-sky-600 via-blue-700 to-indigo-900 rounded-2xl p-4 border border-sky-300/40 shadow-md flex items-center justify-between group spring-press hover-butter-lift cursor-pointer text-left relative overflow-hidden text-white"
+        >
+          <div className="flex items-center gap-3 relative z-10">
+            <div className="w-10 h-10 rounded-xl bg-white/20 text-white border border-white/30 flex items-center justify-center shrink-0 shadow-xs">
+              <Send className="w-5 h-5 fill-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider text-white">Official Telegram Group</span>
+                <span className="bg-sky-400 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full uppercase shadow-xs">
+                  t.me/teslainvestment456
+                </span>
+              </div>
+              <p className="text-xs text-slate-100 font-medium mt-1">
+                Join 45,000+ shareholders for live IPO updates, signals &amp; giveaways
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5 text-sky-300 group-hover:translate-x-1.5 transition-transform shrink-0 relative z-10" />
+        </button>
+
+        {/* Referral Tasks Spotlight Card */}
+        <button
+          onClick={() => onNavigate('tasks')}
+          className="w-full bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-900 rounded-2xl p-4 border border-blue-500/30 shadow-md flex items-center justify-between group spring-press hover-butter-lift cursor-pointer text-left relative overflow-hidden text-white"
+        >
+          <div className="flex items-center gap-3 relative z-10">
+            <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-400/30 flex items-center justify-center shrink-0 shadow-xs">
+              <Award className="w-5 h-5 stroke-[2.2]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-black uppercase tracking-wider text-white">Referral Tasks &amp; Bounties</span>
+                <span className="bg-sky-400 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full uppercase shadow-xs">
+                  Up to ₦3.5M
+                </span>
+              </div>
+              <p className="text-xs text-sky-100 font-medium mt-1">
+                Complete shareholder tasks &amp; invite active friends for instant cash rewards
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-5 h-5 text-sky-300 group-hover:translate-x-1.5 transition-transform shrink-0 relative z-10" />
+        </button>
 
         {/* Ticker / Marquee Bar */}
         <Ticker items={PLATFORM_TICKERS} />
 
-        {/* Balance Cards (Screenshot 4) */}
-        <div className="grid grid-cols-2 gap-3">
-          {/* Account Balance */}
-          <div className="bg-[#00c269] rounded-xl p-4 text-white shadow-xs">
-            <div className="text-lg sm:text-xl font-extrabold tracking-tight truncate">
-              ₦ {user.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-xs font-medium text-white/90 mt-1">
-              Account balance
-            </div>
-          </div>
-
-          {/* Cumulative Income */}
-          <div className="bg-[#00c269] rounded-xl p-4 text-white shadow-xs">
-            <div className="text-lg sm:text-xl font-extrabold tracking-tight truncate">
-              ₦ {user.cumulativeIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-xs font-medium text-white/90 mt-1">
-              Cumulative income
-            </div>
-          </div>
-        </div>
-
-        {/* Daily Attendance Check-In Card */}
-        <div className="bg-white rounded-xl p-3.5 border border-neutral-200 shadow-2xs flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-50 text-[#00c269] flex items-center justify-center shrink-0">
-              <CalendarCheck2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h4 className="text-xs font-bold text-neutral-900">Daily Member Check-In</h4>
-              <p className="text-[11px] text-neutral-500">Sign in daily to receive a free ₦10 reward!</p>
-            </div>
-          </div>
-
-          <button
-            onClick={onDailyCheckIn}
-            disabled={hasCheckedInToday}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold transition active:scale-95 ${
-              hasCheckedInToday
-                ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
-                : 'bg-[#00c269] hover:bg-[#00ab5c] text-white shadow-2xs'
-            }`}
-          >
-            {hasCheckedInToday ? 'Signed In' : 'Sign In'}
-          </button>
-        </div>
-
-        {/* Promoter Mega Bounty Card */}
-        <div
-          onClick={onGoToPromoters}
-          className="relative bg-gradient-to-r from-neutral-900 via-neutral-850 to-rose-950 rounded-xl p-3.5 text-white shadow-xs cursor-pointer group border border-rose-500/20 active:scale-[0.99] transition"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
-                <Flame className="w-5 h-5 animate-pulse" />
-              </div>
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <h4 className="text-xs font-black text-white">Promoter Mega Bounty</h4>
-                  <span className="px-1.5 py-0.2 bg-gradient-to-r from-amber-400 to-rose-500 text-[9px] font-black text-white rounded-full">
-                    UP TO ₦3.5M
-                  </span>
-                </div>
-                <p className="text-[11px] text-neutral-300 mt-0.5">
-                  Earn progressive cash bounties for inviting active VIP buyers!
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center text-xs font-bold text-amber-300 group-hover:translate-x-0.5 transition-transform">
-              <span>View</span>
-              <ArrowRight className="w-4 h-4 ml-0.5" />
-            </div>
-          </div>
-        </div>
-
-        {/* Promo Banner Card (Screenshot 4) */}
-        <div
-          onClick={onGoToProducts}
-          className="relative h-32 rounded-xl overflow-hidden shadow-xs cursor-pointer group active:scale-[0.99] transition border border-neutral-200"
-        >
-          <img
-            src="https://images.unsplash.com/photo-1617788138017-80ad40651399?w=800&auto=format&fit=crop&q=80"
-            alt="Tesla Supercharger VIP Hub"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 brightness-80"
-            referrerPolicy="no-referrer"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/40 to-transparent p-4 flex flex-col justify-center text-white">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-300">
-              Tesla Energy Fleet
-            </span>
-            <h3 className="text-base font-bold leading-snug">
-              Power Your Financial Future
-            </h3>
-            <p className="text-xs text-neutral-200 mt-0.5">
-              Click to view VIP investment packages &gt;
-            </p>
-          </div>
-        </div>
-
         {/* Active Subscriptions Summary Widget */}
-        <div className="bg-white rounded-xl p-4 border border-neutral-200 shadow-xs">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-bold text-neutral-800">My Active Subscriptions</h4>
+        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">My Active Share Tranches</h4>
             <button
               onClick={() => onNavigate('my_store')}
-              className="text-xs text-[#00c269] font-semibold hover:underline flex items-center gap-0.5"
+              className="text-xs text-blue-700 hover:underline font-extrabold cursor-pointer"
             >
-              <span>Manage Store</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              View All ({user?.purchasedProducts?.length || 0}) &gt;
             </button>
           </div>
 
-          {user.purchasedProducts.length === 0 ? (
-            <div className="text-center py-5 text-neutral-400 text-xs">
-              <p>No active VIP plans yet.</p>
+          {(user?.purchasedProducts?.length || 0) === 0 ? (
+            <div className="text-center py-6 text-slate-500 text-xs bg-slate-50 rounded-xl border border-slate-200">
+              <p>No active share tranches subscribed yet.</p>
               <button
                 onClick={onGoToProducts}
-                className="mt-2 px-3 py-1.5 bg-[#00c269] text-white rounded-md text-xs font-medium active:scale-95 transition"
+                className="mt-2.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer"
               >
-                Purchase VIP1
+                Browse Share Tranches Now
               </button>
             </div>
           ) : (
             <div className="space-y-2">
-              {user.purchasedProducts.map((p) => (
-                <div
-                  key={p.instanceId}
-                  className="flex items-center justify-between p-2.5 bg-neutral-50 rounded-lg text-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="px-1.5 py-0.5 bg-emerald-100 text-emerald-800 font-bold rounded-xs text-[10px]">
-                      {p.vipLevel}
-                    </span>
-                    <span className="font-semibold text-neutral-800 truncate max-w-[140px]">
-                      {p.title}
-                    </span>
+              {(user?.purchasedProducts || []).slice(0, 2).map((item) => (
+                <div key={item.instanceId} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-black text-slate-900 truncate">{item.title}</div>
+                    <div className="text-[11px] text-blue-700 font-mono font-bold mt-0.5">
+                      Daily: ₦{(item?.dailyIncome ?? 0).toLocaleString()} | Active: {item?.daysActive ?? 0}/{item?.validityDays ?? 0} Days
+                    </div>
                   </div>
-                  <div className="text-emerald-600 font-bold">
-                    +₦ {p.dailyIncome.toLocaleString()}/day
-                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-300 px-2 py-0.5 rounded-full">
+                    Active Yield
+                  </span>
                 </div>
               ))}
             </div>

@@ -9,12 +9,11 @@ import {
   User as FirebaseUser 
 } from 'firebase/auth';
 import { 
-  initializeFirestore, 
   getFirestore, 
   doc, 
   getDoc, 
-  setDoc,
-  collection,
+  setDoc, 
+  collection, 
   onSnapshot 
 } from 'firebase/firestore';
 

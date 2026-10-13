@@ -96,8 +96,6 @@ export interface PlatformSettings {
   depositBankName?: string;
   depositAccountNo?: string;
   depositAccountName?: string;
-  isTemporaryAdministrationMode?: boolean; // When true, fronts landing page saying "In Administration - Coming Soon"
-  administrationNotice?: string;
 }
 
 export interface UserState {
@@ -120,7 +118,7 @@ export interface UserState {
   creditedByAdmin?: boolean;
 }
 
-export type TabType = 'home' | 'product' | 'promoters' | 'team' | 'mine';
+export type TabType = 'home' | 'product' | 'orders' | 'team' | 'mine';
 export type SubScreen = 
   | null 
   | 'recharge' 
@@ -137,7 +135,8 @@ export type SubScreen =
   | 'app_download'
   | 'admin'
   | 'login'
-  | 'register';
+  | 'register'
+  | 'tasks';
 
 export interface NotificationBannerItem {
   id: string;
