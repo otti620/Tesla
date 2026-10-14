@@ -156,7 +156,7 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
   allowAdminBypassHours: false,
   depositBankName: 'CARBON',
   depositAccountNo: '1581957640',
-  depositAccountName: 'DANGOTE REFINERY SHAREHOLDER ESCROW',
+  depositAccountName: 'LEVIATHAN HYPERMARKET',
 };
 
 export const PLATFORM_ANNOUNCEMENTS = [

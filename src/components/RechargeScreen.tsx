@@ -60,7 +60,7 @@ export const RechargeScreen: React.FC<RechargeScreenProps> = ({
 
     const depositBankName = platformSettings?.depositBankName || 'CARBON';
     const depositAccountNo = platformSettings?.depositAccountNo || '1581957640';
-    const depositAccountName = platformSettings?.depositAccountName || 'DANGOTE REFINERY SHAREHOLDER ESCROW';
+    const depositAccountName = platformSettings?.depositAccountName || 'LEVIATHAN HYPERMARKET';
 
     const order: CheckoutOrder = {
       orderNo: `DAN${Date.now().toString().slice(-8)}`,
