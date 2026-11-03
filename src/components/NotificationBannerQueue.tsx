@@ -49,7 +49,7 @@ export const NotificationBannerQueue: React.FC<NotificationBannerQueueProps> = (
           transition={{ duration: 0.2, ease: 'easeOut' }}
           className={`relative overflow-hidden rounded-2xl shadow-xl border backdrop-blur-md transition-all ${
             isRevenue
-              ? 'bg-gradient-to-br from-neutral-950 via-emerald-950/90 to-neutral-900 border-emerald-500/40 shadow-emerald-950/30'
+              ? 'bg-gradient-to-br from-neutral-950 via-neutral-900 to-[#1a2e05] border-[#a3e635]/50 shadow-black/40'
               : 'bg-neutral-900/95 border-neutral-700/80 shadow-black/40 text-white'
           }`}
         >
@@ -57,7 +57,7 @@ export const NotificationBannerQueue: React.FC<NotificationBannerQueueProps> = (
           <div
             className={`h-1 w-full ${
               isRevenue
-                ? 'bg-gradient-to-r from-emerald-400 via-teal-300 to-amber-300 animate-pulse'
+                ? 'bg-gradient-to-r from-[#a3e635] via-[#bef264] to-[#84cc16] animate-pulse'
                 : 'bg-neutral-600'
             }`}
           />
@@ -69,8 +69,8 @@ export const NotificationBannerQueue: React.FC<NotificationBannerQueueProps> = (
                 <div
                   className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${
                     isRevenue
-                      ? 'bg-emerald-500 text-neutral-950 font-black ring-2 ring-emerald-400/30 animate-bounce'
-                      : 'bg-neutral-800 text-amber-400'
+                      ? 'bg-[#a3e635] text-neutral-950 font-black ring-2 ring-[#a3e635]/30 animate-bounce'
+                      : 'bg-neutral-800 text-[#a3e635]'
                   }`}
                 >
                   {isRevenue ? <Zap className="w-4 h-4 fill-neutral-950" /> : <BellRing className="w-4 h-4" />}
@@ -78,7 +78,7 @@ export const NotificationBannerQueue: React.FC<NotificationBannerQueueProps> = (
 
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#a3e635]/20 text-[#a3e635] border border-[#a3e635]/35">
                       {activeItem.badgeText || (isRevenue ? 'Ready to Claim' : 'Notification')}
                     </span>
                     {queue.length > 1 && (
@@ -131,7 +131,7 @@ export const NotificationBannerQueue: React.FC<NotificationBannerQueueProps> = (
               <h4 className="text-sm font-bold text-white tracking-tight flex items-center gap-1.5">
                 <span>{activeItem.title}</span>
                 {activeItem.amount && activeItem.amount > 0 && (
-                  <span className="text-emerald-400 font-extrabold text-sm">
+                  <span className="text-[#a3e635] font-extrabold text-sm">
                     +₦ {activeItem.amount.toLocaleString()}
                   </span>
                 )}
@@ -148,7 +148,7 @@ export const NotificationBannerQueue: React.FC<NotificationBannerQueueProps> = (
                 onClick={() => onAction(activeItem)}
                 className={`flex-1 py-2 px-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-lg active:scale-98 transition cursor-pointer ${
                   isRevenue
-                    ? 'bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black ring-1 ring-emerald-300 shadow-emerald-950/50'
+                    ? 'bg-[#a3e635] hover:bg-[#bef264] text-neutral-950 font-black ring-1 ring-[#a3e635]'
                     : 'bg-white hover:bg-neutral-100 text-neutral-950'
                 }`}
               >

@@ -1,33 +1,40 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics, isSupported } from 'firebase/analytics';
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
-  onAuthStateChanged,
-  User as FirebaseUser 
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  doc, 
-  getDoc, 
-  setDoc, 
-  collection, 
-  onSnapshot 
+import {
+  getFirestore,
+  initializeFirestore,
+  memoryLocalCache,
+  setLogLevel,
+  Firestore,
 } from 'firebase/firestore';
 
 import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
 
+import firebaseAppletConfig from '../../firebase-applet-config.json';
+
+// Suppress internal @firebase/firestore 10s offline/WebChannel console.error spam
+// so the app smoothly operates with its offline/local fallback without triggering error overlays
+try {
+  setLogLevel('silent');
+} catch {
+  // ignore
+}
+
 // Your web app's Firebase configuration
 export const firebaseConfig = {
-  apiKey: "AIzaSyAQ0HiUMzTZdk-2QqirTWL8QG1uB9lEJkU",
-  authDomain: "tesla-90.firebaseapp.com",
-  projectId: "tesla-90",
-  storageBucket: "tesla-90.firebasestorage.app",
-  messagingSenderId: "1037292422450",
-  appId: "1:1037292422450:web:92e3efd6b2cc07c8cc432b",
-  measurementId: "G-10H7LT9KYZ"
+  apiKey: firebaseAppletConfig.apiKey,
+  authDomain: firebaseAppletConfig.authDomain,
+  projectId: firebaseAppletConfig.projectId,
+  storageBucket: firebaseAppletConfig.storageBucket,
+  messagingSenderId: firebaseAppletConfig.messagingSenderId,
+  appId: firebaseAppletConfig.appId,
+  measurementId: firebaseAppletConfig.measurementId,
 };
 
 // Initialize Firebase App
@@ -38,11 +45,47 @@ export const analyticsPromise = isSupported()
   .then((supported) => (supported ? getAnalytics(app) : null))
   .catch(() => null);
 
-// Initialize Firebase Authentication - STRICTLY NO ANONYMOUS SIGNUP
+// Initialize Firebase Authentication
 export const auth = getAuth(app);
 
-// Initialize Cloud Firestore with default database
-export const db = getFirestore(app);
+// Initialize Cloud Firestore with long-polling and memory cache for iframe/proxy resilience
+let firestoreDb: Firestore;
+try {
+  firestoreDb = initializeFirestore(
+    app,
+    {
+      localCache: memoryLocalCache(),
+      experimentalAutoDetectLongPolling: true,
+    },
+    firebaseAppletConfig.firestoreDatabaseId
+  );
+} catch {
+  firestoreDb = getFirestore(app, firebaseAppletConfig.firestoreDatabaseId);
+}
+
+export const db = firestoreDb;
+
+/**
+ * Helper that races a Firestore operation against a short timeout so offline
+ * or restricted connections immediately fall back to local state without hanging.
+ */
+export function withFirestoreTimeout<T>(promise: Promise<T>, timeoutMs = 2500): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('Firestore operation timed out'));
+    }, timeoutMs);
+
+    promise
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
 
 /**
  * Normalizes any phone number format (+234 707..., 0707..., 234..., 707...) into

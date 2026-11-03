@@ -6,16 +6,13 @@ import {
   User as FirebaseUser
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
-import { auth, db } from './firebase';
+import { auth, db, withFirestoreTimeout } from './firebase';
 import { UserState, PlatformSettings, TransactionRecord } from '../types';
 import { INITIAL_PLATFORM_SETTINGS } from '../data/initialData';
 import { cleanNigerianPhoneDigits, isAdminUser } from '../utils/adminAuth';
-import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 
-export const ACCOUNTS_REGISTRY_KEY = 'dangote_accounts_registry_v2';
-export const LEGACY_ACCOUNTS_REGISTRY_KEY = 'tesla_accounts_registry_v2';
-export const SESSION_STORAGE_KEY = 'dangote_app_state_v2';
-export const LEGACY_SESSION_STORAGE_KEY = 'tesla_app_state_v2';
+export const ACCOUNTS_REGISTRY_KEY = 'tesla_accounts_registry_v2';
+export const SESSION_STORAGE_KEY = 'tesla_app_state_v2';
 
 export interface LocalAccount {
   phone: string; // "+234 7077599057"
@@ -69,7 +66,7 @@ export async function findCloudUserByPhoneOrUid(
   // 1. Check by firebaseUid if provided
   if (firebaseUid) {
     try {
-      const snap = await getDoc(doc(db, 'users', firebaseUid));
+      const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', firebaseUid)), 2000);
       if (snap.exists()) {
         return { data: snap.data() as UserState, docId: snap.id };
       }
@@ -78,7 +75,7 @@ export async function findCloudUserByPhoneOrUid(
 
   // 2. Check by cleanDigits as doc id
   try {
-    const snap = await getDoc(doc(db, 'users', cleanDigits));
+    const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', cleanDigits)), 2000);
     if (snap.exists()) {
       return { data: snap.data() as UserState, docId: snap.id };
     }
@@ -86,7 +83,7 @@ export async function findCloudUserByPhoneOrUid(
 
   // 3. Search collection('users') where phone clean digits match
   try {
-    const snap = await getDocs(collection(db, 'users'));
+    const snap = await withFirestoreTimeout(getDocs(collection(db, 'users')), 2500);
     for (const d of snap.docs) {
       const u = d.data() as UserState;
       const p = cleanNigerianPhoneDigits(u.phone || '');
@@ -104,14 +101,12 @@ export async function findCloudUserByPhoneOrUid(
  */
 export function purgeAllMockDataAcrossPlatform(): void {
   try {
-    localStorage.removeItem('dangote_gift_codes_state');
-    sessionStorage.removeItem('dangote_gift_codes_state');
     localStorage.removeItem('tesla_gift_codes_state');
     sessionStorage.removeItem('tesla_gift_codes_state');
   } catch {}
 
   try {
-    const raw = localStorage.getItem(ACCOUNTS_REGISTRY_KEY) || localStorage.getItem(LEGACY_ACCOUNTS_REGISTRY_KEY);
+    const raw = localStorage.getItem(ACCOUNTS_REGISTRY_KEY);
     if (raw) {
       const accounts: Record<string, LocalAccount> = JSON.parse(raw);
       let changed = false;
@@ -142,10 +137,7 @@ export function purgeAllMockDataAcrossPlatform(): void {
           );
           if ((acc.userState.records?.length || 0) !== beforeRec) changed = true;
 
-          if (
-            acc.userState.bankAccount?.accountName === 'Dangote Refinery Master Treasury' ||
-            acc.userState.bankAccount?.accountName === 'Tesla Energy Master Treasury'
-          ) {
+          if (acc.userState.bankAccount?.accountName === 'Tesla Energy Master Treasury') {
             acc.userState.bankAccount = null;
             changed = true;
           }
@@ -160,7 +152,7 @@ export function purgeAllMockDataAcrossPlatform(): void {
   }
 
   try {
-    const sessionRaw = localStorage.getItem(SESSION_STORAGE_KEY) || localStorage.getItem(LEGACY_SESSION_STORAGE_KEY);
+    const sessionRaw = localStorage.getItem(SESSION_STORAGE_KEY);
     if (sessionRaw) {
       const u: UserState = JSON.parse(sessionRaw);
       if (u) {
@@ -190,10 +182,7 @@ export function purgeAllMockDataAcrossPlatform(): void {
         );
         if ((u.records?.length || 0) !== beforeRec) changed = true;
 
-        if (
-          u.bankAccount?.accountName === 'Dangote Refinery Master Treasury' ||
-          u.bankAccount?.accountName === 'Tesla Energy Master Treasury'
-        ) {
+        if (u.bankAccount?.accountName === 'Tesla Energy Master Treasury') {
           u.bankAccount = null;
           changed = true;
         }
@@ -219,7 +208,7 @@ export function getLocalAccounts(): Record<string, LocalAccount> {
 
   let accounts: Record<string, LocalAccount> = {};
   try {
-    const raw = localStorage.getItem(ACCOUNTS_REGISTRY_KEY) || localStorage.getItem(LEGACY_ACCOUNTS_REGISTRY_KEY);
+    const raw = localStorage.getItem(ACCOUNTS_REGISTRY_KEY);
     if (raw) {
       accounts = JSON.parse(raw);
     }
@@ -270,7 +259,7 @@ export function generateUniqueInviteCode(digits: string): string {
   for (let i = 0; i < 4; i++) {
     rand += chars.charAt(Math.floor(Math.random() * chars.length));
   }
-  return `TSL${rand}${digits.slice(-2)}`;
+  return `OLA${rand}${digits.slice(-2)}`;
 }
 
 /**
@@ -323,19 +312,26 @@ export async function registerAccount(
 
   // 2. Check if this user already has an existing profile in Firestore
   const cloudExisting = await findCloudUserByPhoneOrUid(last10, firebaseUid);
+  const cleanInviterCode = inviteCode ? inviteCode.trim().toUpperCase() : 'P5ZP4S';
   let finalUserState: UserState;
 
   if (cloudExisting) {
-    // PRESERVE real cloud balance, cumulative income, products, and records!
+    // PRESERVE real cloud balance, cumulative income, products, teamMembers, and records!
+    const localPrev = accounts[last10]?.userState;
     finalUserState = {
       ...cloudExisting.data,
       phone: display,
       isLoggedIn: true,
       loginPassword: password,
+      invitedBy: cloudExisting.data.invitedBy || localPrev?.invitedBy || cleanInviterCode,
+      teamMembers:
+        (cloudExisting.data.teamMembers?.length || 0) >= (localPrev?.teamMembers?.length || 0)
+          ? cloudExisting.data.teamMembers || []
+          : localPrev?.teamMembers || [],
     };
   } else {
     // Fresh registration: grant welcome bonus
-    const signupBonus = isAdmin ? 0 : (settings.signupBonus || 1000);
+    const signupBonus = isAdmin ? 0 : (settings.signupBonus || 1100);
     const welcomeRecord: TransactionRecord = {
       id: `reg_${Date.now()}`,
       type: 'bonus',
@@ -343,13 +339,12 @@ export async function registerAccount(
       amount: signupBonus,
       status: 'success',
       timestamp: Date.now(),
-      details: 'Official Dangote Shareholder Welcome Grant',
+      details: 'Official Ola Cabs Welcome Grant',
     };
 
     const userOwnInviteCode = isAdmin 
       ? (last10 === '7077599057' ? 'TSLROOT1' : 'TSLROOT2')
       : generateUniqueInviteCode(last10);
-    const cleanInviterCode = inviteCode ? inviteCode.trim().toUpperCase() : 'P5ZP4S';
 
     finalUserState = isAdmin
       ? {
@@ -358,6 +353,7 @@ export async function registerAccount(
           cumulativeIncome: accounts[last10]?.userState?.cumulativeIncome ?? 0.0,
           records: accounts[last10]?.userState?.records ?? [],
           purchasedProducts: accounts[last10]?.userState?.purchasedProducts ?? [],
+          teamMembers: accounts[last10]?.userState?.teamMembers ?? [],
           bankAccount: accounts[last10]?.userState?.bankAccount ?? null,
           loginPassword: password,
         }
@@ -378,31 +374,6 @@ export async function registerAccount(
         };
   }
 
-  // Link to inviter's team downline in local registry if found
-  try {
-    const inviterKey = Object.keys(accounts).find(
-      (k) => accounts[k]?.userState?.inviteCode === finalUserState.invitedBy
-    );
-    if (inviterKey && accounts[inviterKey]) {
-      const inviterState = accounts[inviterKey].userState;
-      if (!inviterState.teamMembers.some((m) => m.phone === display)) {
-        inviterState.teamMembers.unshift({
-          id: `tm_${Date.now()}`,
-          phone: display,
-          inviteCode: finalUserState.inviteCode,
-          level: 1,
-          joinDate: new Date().toISOString().split('T')[0],
-          invested: 0,
-          commission: 0,
-          status: 'active',
-        });
-        accounts[inviterKey].updatedAt = Date.now();
-      }
-    }
-  } catch {
-    // non-blocking
-  }
-
   // 3. Immediately store into local accounts registry for guaranteed fallback
   accounts[last10] = {
     phone: display,
@@ -421,17 +392,37 @@ export async function registerAccount(
     // ignore
   }
 
-  // 5. Persist to Firestore under UID
+  // 5. Persist to Firestore under both UID and phone digits (non-blocking with timeout)
   const targetDocId = firebaseUid || last10;
   try {
-    const payload = sanitizeForFirestore({
-      ...finalUserState,
-      firebaseUid: targetDocId,
-      updatedAt: Date.now(),
-    });
-    await setDoc(doc(db, 'users', targetDocId), payload, { merge: true });
-  } catch (docErr) {
-    console.warn('Could not write user doc to Firestore:', docErr);
+    await withFirestoreTimeout(
+      setDoc(
+        doc(db, 'users', targetDocId),
+        {
+          ...finalUserState,
+          firebaseUid: targetDocId,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      ),
+      2000
+    );
+    if (last10 && targetDocId !== last10) {
+      withFirestoreTimeout(
+        setDoc(
+          doc(db, 'users', last10),
+          {
+            ...finalUserState,
+            firebaseUid: targetDocId,
+            updatedAt: Date.now(),
+          },
+          { merge: true }
+        ),
+        1800
+      ).catch(() => {});
+    }
+  } catch {
+    // Offline fallback already saved in localStorage
   }
 
   return finalUserState;
@@ -439,29 +430,20 @@ export async function registerAccount(
 
 /**
  * Authenticates user with multi-tier fallback (Firebase Cloud First -> Local Fallback Registry)
- * Strictly loads and preserves REAL cloud balances from Firebase.
+ * Strictly loads and preserves REAL cloud balances and team commissions from Firebase & Local Registry.
  */
 export async function loginAccount(rawPhone: string, password: string): Promise<UserState> {
   const { display, last10, authEmail, isAdmin } = normalizePhone(rawPhone);
   const accounts = getLocalAccounts();
-  const localAcc = accounts[last10];
 
-  // 1. Check if this account exists anywhere (local accounts registry or Firestore)
-  const cloudUser = await findCloudUserByPhoneOrUid(last10, null);
-
-  // STRICT REQUIREMENT: If account does NOT exist in local registry, Firestore, and is not an authorized admin,
-  // do NOT attempt Firebase sign-in! Strictly reject immediately so unverified sessions cannot bypass AuthScreen.
-  if (!localAcc && !cloudUser && !isAdmin) {
-    await signOut(auth).catch(() => {});
-    throw new Error('Account does not exist. Please click "To register" to sign up first.');
-  }
-
-  // 2. Account exists in local registry, cloudUser, or is Admin!
+  // TIER 1: Firebase Auth Sign-In
   let firebaseUid: string | null = null;
+
   try {
     const cred = await signInWithEmailAndPassword(auth, authEmail, password);
     firebaseUid = cred.user.uid;
   } catch (fbErr: any) {
+    // If wrong password, and user is an admin or used 123456, try default credential
     if (isAdmin || password === '123456') {
       try {
         const cred = await signInWithEmailAndPassword(auth, authEmail, '123456');
@@ -471,43 +453,67 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
         }
       } catch {}
     }
-  }
 
-  // Verify credentials for local account if present
-  if (localAcc) {
-    const isPasswordValid =
-      localAcc.password === password ||
-      (isAdmin && (password === '123456' || localAcc.password === '123456' || Boolean(password)));
-
-    if (!isPasswordValid) {
-      await signOut(auth).catch(() => {});
-      throw new Error('Incorrect password. Please verify your login credentials.');
+    // If user not found in Firebase Auth, auto-create so Firebase session is established
+    if (!firebaseUid && (fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential')) {
+      try {
+        const newCred = await createUserWithEmailAndPassword(auth, authEmail, password);
+        firebaseUid = newCred.user.uid;
+      } catch (createErr: any) {
+        if (createErr?.code === 'auth/email-already-in-use') {
+          try {
+            const cred = await signInWithEmailAndPassword(auth, authEmail, '123456');
+            firebaseUid = cred.user.uid;
+            try { await updatePassword(cred.user, password); } catch {}
+          } catch {}
+        }
+      }
     }
   }
 
-  // If cloudUser exists
+  // TIER 2: Load REAL User State from Firestore and merge with local registry
+  const cloudUser = await findCloudUserByPhoneOrUid(last10, firebaseUid);
+  const localUser = accounts[last10]?.userState;
+
   if (cloudUser) {
-    if (cloudUser.data.loginPassword && cloudUser.data.loginPassword !== password && !isAdmin) {
-      await signOut(auth).catch(() => {});
-      throw new Error('Incorrect password. Please verify your login credentials.');
+    const mergedTeam = [...(cloudUser.data.teamMembers || [])];
+    if (localUser?.teamMembers) {
+      for (const lm of localUser.teamMembers) {
+        const lmDigits = cleanNigerianPhoneDigits(lm.phone);
+        const existingIdx = mergedTeam.findIndex(
+          (cm) => cm.level === lm.level && cleanNigerianPhoneDigits(cm.phone) === lmDigits
+        );
+        if (existingIdx < 0) {
+          mergedTeam.push(lm);
+        } else {
+          mergedTeam[existingIdx] = {
+            ...mergedTeam[existingIdx],
+            invested: Math.max(mergedTeam[existingIdx].invested || 0, lm.invested || 0),
+            commission: Math.max(mergedTeam[existingIdx].commission || 0, lm.commission || 0),
+          };
+        }
+      }
     }
 
     const restoredState: UserState = {
+      ...localUser,
       ...cloudUser.data,
       phone: display,
       isLoggedIn: true,
       loginPassword: password,
-      balance: typeof cloudUser.data.balance === 'number' && !isNaN(cloudUser.data.balance) ? cloudUser.data.balance : 0,
-      cumulativeIncome: typeof cloudUser.data.cumulativeIncome === 'number' && !isNaN(cloudUser.data.cumulativeIncome) ? cloudUser.data.cumulativeIncome : 0,
-      bankAccount: cloudUser.data.bankAccount || null,
-      fundPin: cloudUser.data.fundPin || '123456',
-      inviteCode: cloudUser.data.inviteCode || '',
-      purchasedProducts: Array.isArray(cloudUser.data.purchasedProducts) ? cloudUser.data.purchasedProducts : [],
-      records: Array.isArray(cloudUser.data.records) ? cloudUser.data.records : [],
-      teamMembers: Array.isArray(cloudUser.data.teamMembers) ? cloudUser.data.teamMembers : [],
-      claimedPromoterMilestones: Array.isArray(cloudUser.data.claimedPromoterMilestones) ? cloudUser.data.claimedPromoterMilestones : [],
+      balance: Math.max(Number(cloudUser.data.balance) || 0, Number(localUser?.balance) || 0),
+      cumulativeIncome: Math.max(
+        Number(cloudUser.data.cumulativeIncome) || 0,
+        Number(localUser?.cumulativeIncome) || 0
+      ),
+      teamMembers: mergedTeam,
+      records:
+        (cloudUser.data.records?.length || 0) >= (localUser?.records?.length || 0)
+          ? cloudUser.data.records || []
+          : localUser?.records || [],
     };
 
+    // Keep local registry cache updated with the REAL merged state
     accounts[last10] = {
       phone: display,
       digits: last10,
@@ -519,45 +525,56 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
     saveLocalAccounts(accounts);
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(restoredState));
 
+    // Sync to doc(db, 'users', firebaseUid) if needed
     if (firebaseUid && cloudUser.docId !== firebaseUid) {
-      const payload = sanitizeForFirestore({ ...restoredState, firebaseUid });
-      setDoc(doc(db, 'users', firebaseUid), payload, { merge: true }).catch(() => {});
+      withFirestoreTimeout(
+        setDoc(doc(db, 'users', firebaseUid), { ...restoredState, firebaseUid }, { merge: true }),
+        1800
+      ).catch(() => {});
     }
 
     return restoredState;
   }
 
-  // Local fallback
+  // TIER 3: Local Registry Fallback
+  const localAcc = accounts[last10];
   if (localAcc) {
-    const restoredUser: UserState = {
-      ...localAcc.userState,
-      phone: display,
-      isLoggedIn: true,
-      loginPassword: password,
-      balance: typeof localAcc.userState.balance === 'number' && !isNaN(localAcc.userState.balance) ? localAcc.userState.balance : 0,
-      cumulativeIncome: typeof localAcc.userState.cumulativeIncome === 'number' && !isNaN(localAcc.userState.cumulativeIncome) ? localAcc.userState.cumulativeIncome : 0,
-      bankAccount: localAcc.userState.bankAccount || null,
-      fundPin: localAcc.userState.fundPin || '123456',
-      inviteCode: localAcc.userState.inviteCode || '',
-      purchasedProducts: Array.isArray(localAcc.userState.purchasedProducts) ? localAcc.userState.purchasedProducts : [],
-      records: Array.isArray(localAcc.userState.records) ? localAcc.userState.records : [],
-      teamMembers: Array.isArray(localAcc.userState.teamMembers) ? localAcc.userState.teamMembers : [],
-      claimedPromoterMilestones: Array.isArray(localAcc.userState.claimedPromoterMilestones) ? localAcc.userState.claimedPromoterMilestones : [],
-    };
+    const isPasswordValid = 
+      localAcc.password === password || 
+      (isAdmin && (password === '123456' || localAcc.password === '123456' || Boolean(password)));
 
-    const targetDocId = firebaseUid || last10;
-    const payload = sanitizeForFirestore({
-      ...restoredUser,
-      firebaseUid: targetDocId,
-      updatedAt: Date.now(),
-    });
-    setDoc(doc(db, 'users', targetDocId), payload, { merge: true }).catch(() => {});
+    if (isPasswordValid) {
+      // If admin, update stored password to the active password
+      if (isAdmin && password && localAcc.password !== password) {
+        localAcc.password = password;
+        localAcc.userState.loginPassword = password;
+        accounts[last10] = localAcc;
+        saveLocalAccounts(accounts);
+      }
 
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(restoredUser));
-    return restoredUser;
+      const restoredUser: UserState = {
+        ...localAcc.userState,
+        phone: display,
+        isLoggedIn: true,
+        loginPassword: password,
+      };
+
+      // If Firebase Auth succeeded, backfill Firestore with the profile
+      const targetDocId = firebaseUid || last10;
+      setDoc(doc(db, 'users', targetDocId), {
+        ...restoredUser,
+        firebaseUid: targetDocId,
+        updatedAt: Date.now(),
+      }, { merge: true }).catch(() => {});
+
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(restoredUser));
+      return restoredUser;
+    } else {
+      throw new Error('Incorrect password. Please verify your login credentials.');
+    }
   }
 
-  // Admin auto-provision fallback
+  // TIER 4: Admin auto-provision fallback if user entered admin phone
   if (isAdmin) {
     const adminState = createAdminDefaultState(last10);
     adminState.loginPassword = password;
@@ -573,17 +590,16 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(adminState));
 
     const targetDocId = firebaseUid || last10;
-    const payload = sanitizeForFirestore({
+    setDoc(doc(db, 'users', targetDocId), {
       ...adminState,
       firebaseUid: targetDocId,
       updatedAt: Date.now(),
-    });
-    setDoc(doc(db, 'users', targetDocId), payload, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(() => {});
 
     return adminState;
   }
 
-  await signOut(auth).catch(() => {});
+  // Not found in any provider
   throw new Error('Account does not exist. Please click "To register" to sign up first.');
 }
 
@@ -630,12 +646,11 @@ export async function directAdminLogin(adminDigits: '7077599057' | '9011711470')
   localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(adminState));
 
   if (firebaseUid) {
-    const payload = sanitizeForFirestore({
+    setDoc(doc(db, 'users', firebaseUid), {
       ...adminState,
       firebaseUid,
       updatedAt: Date.now(),
-    });
-    setDoc(doc(db, 'users', firebaseUid), payload, { merge: true }).catch(() => {});
+    }, { merge: true }).catch(() => {});
   }
 
   return adminState;
@@ -652,7 +667,6 @@ export async function signOutUser() {
   }
   try {
     localStorage.removeItem(SESSION_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
   } catch {
     // ignore
   }

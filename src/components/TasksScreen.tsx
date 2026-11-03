@@ -307,10 +307,10 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
 
                     <div className="text-right shrink-0">
                       <div className="text-base font-black text-blue-700 font-mono">
-                        +₦{m.bonusAmount.toLocaleString()}
+                        +${m.bonusAmount.toFixed(2)} USD
                       </div>
-                      <div className="text-[10px] text-slate-500 font-semibold">
-                        Cash Bounty
+                      <div className="text-[10px] text-slate-500 font-semibold font-mono">
+                        ≈ ₦{(m.bonusAmount * 1500).toLocaleString()} NGN
                       </div>
                     </div>
                   </div>
@@ -343,7 +343,7 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                         className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-md active:scale-95 transition flex items-center gap-1.5 cursor-pointer border border-blue-500"
                       >
                         <Zap className="w-4 h-4 fill-white" />
-                        <span>{isClaiming === m.id ? 'Claiming...' : `Claim ₦${m.bonusAmount.toLocaleString()} Bounty`}</span>
+                        <span>{isClaiming === m.id ? 'Claiming...' : `Claim $${m.bonusAmount.toFixed(2)} USD Bounty`}</span>
                       </button>
                     ) : (
                       <button
@@ -372,7 +372,7 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-slate-900">Daily Shareholder Check-In</h3>
-                    <p className="text-[10px] text-blue-700 font-bold">+₦10 Attendance Reward Daily</p>
+                    <p className="text-[10px] text-blue-700 font-bold">+$0.05 USD (≈ ₦75 NGN) Attendance Reward Daily</p>
                   </div>
                 </div>
 
@@ -394,7 +394,7 @@ export const TasksScreen: React.FC<TasksScreenProps> = ({
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-slate-900">Join Official Telegram Syndicate</h3>
-                    <p className="text-[10px] text-sky-700 font-bold">+₦200 Instant Community Reward</p>
+                    <p className="text-[10px] text-sky-700 font-bold">+$0.15 USD (≈ ₦225 NGN) Instant Reward</p>
                   </div>
                 </div>
 

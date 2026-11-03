@@ -92,7 +92,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
           }}
           className={`py-3 transition border-b-2 ${
             activeTab === 'login_pass'
-              ? 'border-[#00c269] text-[#00c269] font-black'
+              ? 'border-[#65a30d] text-[#4d7c0f] font-black'
               : 'border-transparent text-neutral-500 hover:text-neutral-800'
           }`}
         >
@@ -105,7 +105,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
           }}
           className={`py-3 transition border-b-2 ${
             activeTab === 'fund_pin'
-              ? 'border-[#00c269] text-[#00c269] font-black'
+              ? 'border-[#65a30d] text-[#4d7c0f] font-black'
               : 'border-transparent text-neutral-500 hover:text-neutral-800'
           }`}
         >
@@ -118,12 +118,12 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
           <div
             className={`p-3 rounded-xl flex items-center gap-2 text-xs ${
               message.type === 'success'
-                ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                ? 'bg-lime-50 border border-lime-200 text-lime-900'
                 : 'bg-red-50 border border-red-200 text-red-800'
             }`}
           >
             {message.type === 'success' ? (
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-[#65a30d]" />
             ) : (
               <AlertCircle className="w-4 h-4 shrink-0" />
             )}
@@ -143,7 +143,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
                   value={oldPass}
                   onChange={(e) => setOldPass(e.target.value)}
                   placeholder="Enter current password"
-                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-[#a3e635]"
                 />
               </div>
 
@@ -156,7 +156,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
                   value={newPass}
                   onChange={(e) => setNewPass(e.target.value)}
                   placeholder="Enter new password (min 6 chars)"
-                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-[#a3e635]"
                   required
                 />
               </div>
@@ -170,7 +170,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
                   value={confirmPass}
                   onChange={(e) => setConfirmPass(e.target.value)}
                   placeholder="Repeat new password"
-                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 focus:outline-hidden focus:ring-1 focus:ring-[#a3e635]"
                   required
                 />
               </div>
@@ -178,7 +178,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3.5 rounded-full bg-[#00c269] hover:bg-[#00ad5e] text-white text-xs font-bold shadow-md active:scale-98 transition"
+              className="w-full py-3.5 rounded-full bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 text-xs font-black shadow-md active:scale-98 transition"
             >
               Update Password
             </button>
@@ -186,8 +186,8 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
         ) : (
           <form onSubmit={handlePinSubmit} className="space-y-4">
             <div className="bg-white rounded-2xl p-4 shadow-xs border border-neutral-200 space-y-3">
-              <div className="flex items-center gap-2 p-2 bg-emerald-50 rounded-lg text-emerald-800 text-[11px]">
-                <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-600" />
+              <div className="flex items-center gap-2 p-2 bg-lime-50 rounded-lg text-lime-950 text-[11px]">
+                <ShieldCheck className="w-4 h-4 shrink-0 text-[#65a30d]" />
                 <span>
                   {user.fundPin
                     ? 'Your account has a fund PIN enabled.'
@@ -206,7 +206,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
                   value={pin}
                   onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
                   placeholder="Enter 6-digit PIN"
-                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 font-mono tracking-widest text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 font-mono tracking-widest text-center focus:outline-hidden focus:ring-1 focus:ring-[#a3e635]"
                   required
                 />
               </div>
@@ -222,7 +222,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
                   value={confirmPin}
                   onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))}
                   placeholder="Repeat 6-digit PIN"
-                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 font-mono tracking-widest text-center focus:outline-hidden focus:ring-1 focus:ring-emerald-500"
+                  className="w-full bg-neutral-100 border border-neutral-200 rounded-lg p-2.5 text-xs text-neutral-900 font-mono tracking-widest text-center focus:outline-hidden focus:ring-1 focus:ring-[#a3e635]"
                   required
                 />
               </div>
@@ -230,7 +230,7 @@ export const SecurityScreen: React.FC<SecurityScreenProps> = ({
 
             <button
               type="submit"
-              className="w-full py-3.5 rounded-full bg-[#00c269] hover:bg-[#00ad5e] text-white text-xs font-bold shadow-md active:scale-98 transition"
+              className="w-full py-3.5 rounded-full bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 text-xs font-black shadow-md active:scale-98 transition"
             >
               {user.fundPin ? 'Update Fund PIN' : 'Activate Fund PIN'}
             </button>

@@ -1,101 +1,99 @@
 import React, { useState, useEffect } from 'react';
-import {
-  ChevronLeft,
-  Copy,
-  Check,
-  Clock,
-  ShieldCheck,
-  Building2,
+import { 
+  ChevronLeft, 
+  Copy, 
+  Check, 
+  Clock, 
+  ShieldCheck, 
+  Building2, 
+  User, 
+  ArrowRight, 
+  CheckCircle2, 
+  Loader2, 
   AlertCircle,
-  Loader2,
-  Sparkles,
-  ArrowRight,
-  User,
-  CreditCard,
+  FileClock,
+  Sparkles
 } from 'lucide-react';
 import { CheckoutOrder } from '../types';
-import { DangoteLogo } from './DangoteLogo';
-import { NIGERIAN_BANKS } from '../data/initialData';
 
 interface CheckoutScreenProps {
   order: CheckoutOrder;
-  userEmail?: string;
   onBack: () => void;
-  onSubmitPayment?: (
-    senderBank: string,
-    payeeName: string,
-    proofNote?: string
-  ) => Promise<boolean | void> | boolean | void;
-  onConfirmPayment?: (
-    order: CheckoutOrder,
-    senderBank: string,
-    payeeName: string
-  ) => Promise<boolean | void> | boolean | void;
   onGoToRecords?: () => void;
+  onConfirmPayment?: (order: CheckoutOrder, senderBank: string, payeeName: string) => void;
+  onPaymentConfirmed?: (amount: number, channel: string) => void;
 }
+
+const POPULAR_NIGERIAN_BANKS = [
+  'OPay (PayCom)',
+  'PalmPay',
+  'Kuda Microfinance Bank',
+  'Moniepoint MFB',
+  'Access Bank',
+  'Guaranty Trust Bank (GTBank)',
+  'Zenith Bank',
+  'First Bank of Nigeria',
+  'United Bank for Africa (UBA)',
+  'Stanbic IBTC Bank',
+  'Fidelity Bank',
+  'First City Monument Bank (FCMB)',
+  'Union Bank of Nigeria',
+  'Sterling Bank',
+  'Wema Bank / ALAT',
+  'Polaris Bank',
+  'Jaiz Bank',
+  'Other Bank',
+];
 
 export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
   order,
   onBack,
-  onSubmitPayment,
-  onConfirmPayment,
   onGoToRecords,
+  onConfirmPayment,
+  onPaymentConfirmed,
 }) => {
-  const [currentStep, setCurrentStep] = useState<'instructions' | 'proof_form' | 'processing_status'>('instructions');
-  const [copiedAccount, setCopiedAccount] = useState(false);
-  const [copiedAccountName, setCopiedAccountName] = useState(false);
+  const [currentStep, setCurrentStep] = useState<'instructions' | 'details_form' | 'processing_status'>('instructions');
+  const [secondsRemaining, setSecondsRemaining] = useState(900); // 15 mins
+  const [copiedAcc, setCopiedAcc] = useState(false);
   const [copiedAmount, setCopiedAmount] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(15 * 60); // 15 minutes in seconds
-
-  // Form state
-  const [senderBank, setSenderBank] = useState<string>('Access Bank');
-  const [customBank, setCustomBank] = useState<string>('');
-  const [payeeName, setPayeeName] = useState<string>('');
-  const [formError, setFormError] = useState<string>('');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  
+  // Payment confirmation form fields
+  const [selectedBank, setSelectedBank] = useState('OPay (PayCom)');
+  const [customBankName, setCustomBankName] = useState('');
+  const [payeeName, setPayeeName] = useState('');
+  const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      setSecondsRemaining((prev) => (prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
   const formatTimer = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const handleCopyAccount = () => {
-    navigator.clipboard.writeText(order.accountNo || '1581957640');
-    setCopiedAccount(true);
-    setTimeout(() => setCopiedAccount(false), 2000);
+  const copyText = (text: string, isAmount: boolean) => {
+    navigator.clipboard.writeText(text);
+    if (isAmount) {
+      setCopiedAmount(true);
+      setTimeout(() => setCopiedAmount(false), 2000);
+    } else {
+      setCopiedAcc(true);
+      setTimeout(() => setCopiedAcc(false), 2000);
+    }
   };
 
-  const handleCopyAccountName = () => {
-    navigator.clipboard.writeText(order.accountName || 'LEVIATHAN HYPERMARKET');
-    setCopiedAccountName(true);
-    setTimeout(() => setCopiedAccountName(false), 2000);
-  };
+  const finalSenderBank = selectedBank === 'Other Bank' ? customBankName.trim() : selectedBank;
 
-  const handleCopyAmount = () => {
-    navigator.clipboard.writeText(order.amount.toString());
-    setCopiedAmount(true);
-    setTimeout(() => setCopiedAmount(false), 2000);
-  };
-
-  const finalSenderBank = senderBank === 'Other' ? customBank.trim() || 'Commercial Bank' : senderBank;
-  const displayBankName = order.bankName || 'CARBON';
-  const displayAccountName = order.accountName || 'LEVIATHAN HYPERMARKET';
-  const displayAccountNo = order.accountNo || '1581957640';
-
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleSubmitPaymentDetails = (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError('');
-
-    if (senderBank === 'Other' && !customBank.trim()) {
-      setFormError('Please type your bank name.');
+    if (selectedBank === 'Other Bank' && !customBankName.trim()) {
+      setFormError('Please enter the name of the bank you transferred from.');
       return;
     }
     if (!payeeName.trim() || payeeName.trim().length < 3) {
@@ -103,302 +101,232 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
       return;
     }
 
+    setFormError('');
     setIsSubmitting(true);
-    try {
-      let isSuccess = true;
-      if (onConfirmPayment) {
-        const res = await onConfirmPayment(order, finalSenderBank, payeeName.trim());
-        if (res === false) isSuccess = false;
-      } else if (onSubmitPayment) {
-        const res = await onSubmitPayment(finalSenderBank, payeeName.trim());
-        if (res === false) isSuccess = false;
-      }
-      if (isSuccess) {
-        setCurrentStep('processing_status');
-      } else {
-        setFormError('Failed to record payment. Please try again.');
-      }
-    } catch {
-      setFormError('An error occurred submitting payment details. Please retry.');
-    } finally {
+
+    setTimeout(() => {
       setIsSubmitting(false);
-    }
+      const bankResult = finalSenderBank || 'Bank Transfer';
+      const nameResult = payeeName.trim();
+
+      if (onConfirmPayment) {
+        onConfirmPayment(order, bankResult, nameResult);
+      } else if (onPaymentConfirmed) {
+        onPaymentConfirmed(order.amount, order.channel);
+      }
+
+      setCurrentStep('processing_status');
+    }, 1200);
   };
 
   return (
-    <div className="min-h-screen pb-20 bg-slate-50 text-slate-900 font-sans animate-page-in">
-      {/* Top Header - Executive Blue Theme */}
-      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-700 via-blue-800 to-indigo-900 text-white shadow-md">
+    <div className="min-h-screen pb-16 bg-neutral-100 text-neutral-900">
+      {/* Header */}
+      <div className="sticky top-0 z-30 flex items-center justify-between px-4 py-3 bg-white border-b border-neutral-100 shadow-2xs">
         <button
-          onClick={onBack}
-          className="p-1.5 -ml-1 text-white hover:bg-white/10 rounded-full transition active:scale-95 cursor-pointer"
-          aria-label="Back"
+          onClick={() => {
+            if (currentStep === 'details_form') {
+              setCurrentStep('instructions');
+            } else {
+              onBack();
+            }
+          }}
+          className="p-1 -ml-1 text-neutral-800 hover:bg-neutral-100 rounded-full transition active:scale-95 cursor-pointer"
         >
-          <ChevronLeft className="w-6 h-6" />
+          <ChevronLeft className="w-7 h-7" />
         </button>
 
-        <div className="text-center">
-          <h1 className="text-base font-black tracking-wide text-white">
-            Escrow Depository Checkout
-          </h1>
-          <p className="text-[10px] text-sky-300 font-bold tracking-wider uppercase">
-            Order Ref: {order.orderNo}
-          </p>
-        </div>
+        <h1 className="text-base font-bold text-neutral-900">
+          {currentStep === 'instructions' && 'Ola Cabs Pay Gateway'}
+          {currentStep === 'details_form' && 'Confirm Payment Details'}
+          {currentStep === 'processing_status' && 'Deposit Processing'}
+        </h1>
 
-        <div className="w-8" />
+        <div className="w-7">
+          {currentStep === 'processing_status' && onGoToRecords && (
+            <button
+              onClick={onGoToRecords}
+              className="p-1 text-neutral-700 hover:text-emerald-600 transition cursor-pointer"
+              title="View Records"
+            >
+              <FileClock className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Progress Step Indicator */}
-      <div className="px-4 pt-3 max-w-md mx-auto">
-        <div className="flex items-center justify-between bg-slate-200 p-1.5 rounded-2xl border border-slate-300 text-[11px] font-bold">
-          <button
-            onClick={() => setCurrentStep('instructions')}
-            className={`flex-1 py-1.5 rounded-xl transition-butter text-center cursor-pointer ${
-              currentStep === 'instructions'
-                ? 'bg-blue-600 text-white font-black shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            1. Bank Details
-          </button>
-          <button
-            onClick={() => setCurrentStep('proof_form')}
-            className={`flex-1 py-1.5 rounded-xl transition-butter text-center cursor-pointer ${
-              currentStep === 'proof_form'
-                ? 'bg-blue-600 text-white font-black shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            2. Verify Payment
-          </button>
-          <div
-            className={`flex-1 py-1.5 rounded-xl text-center ${
-              currentStep === 'processing_status'
-                ? 'bg-blue-600 text-white font-black shadow-xs'
-                : 'text-slate-400'
-            }`}
-          >
-            3. Processing
+      {/* Expiry Banner (Instructions / Details Form) */}
+      {currentStep !== 'processing_status' && (
+        <div className="bg-neutral-950 border-b border-[#a3e635]/30 text-white px-4 py-2.5 flex items-center justify-between text-xs font-medium">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-4 h-4 text-[#a3e635] animate-pulse" />
+            <span className="text-neutral-300">Session Closes In:</span>
           </div>
+          <span className="font-mono text-sm font-black text-[#a3e635] bg-neutral-900 border border-[#a3e635]/30 px-2.5 py-0.5 rounded-md">
+            {formatTimer(secondsRemaining)}
+          </span>
         </div>
-      </div>
+      )}
 
-      {/* STEP 1: INSTRUCTIONS SCREEN */}
+      {/* STEP 1: INSTRUCTIONS & BANK DETAILS */}
       {currentStep === 'instructions' && (
-        <div className="p-4 space-y-4 max-w-md mx-auto animate-page-in">
-          {/* Timer Notice Banner */}
-          <div className="bg-sky-50 border border-sky-300 rounded-2xl p-3.5 flex items-center justify-between text-xs text-blue-900 font-bold">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 shrink-0 text-blue-600 animate-pulse" />
-              <span>Transfer Session Active</span>
-            </div>
-            <div className="font-mono font-black text-sm text-blue-700 bg-white px-2.5 py-1 rounded-lg border border-sky-300 shadow-2xs">
-              {formatTimer(timeLeft)}
-            </div>
-          </div>
-
-          {/* Amount Box */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs text-center space-y-1 relative overflow-hidden">
-            <div className="text-xs text-slate-500 uppercase tracking-wider font-bold">
-              Exact Amount To Transfer
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <span className="text-3xl font-black text-blue-700 font-mono">
-                ₦ {order.amount.toLocaleString()}
+        <div className="p-4 space-y-4 max-w-md mx-auto animate-in fade-in duration-200">
+          {/* Order Card */}
+          <div className="bg-white rounded-2xl p-5 shadow-xs border border-neutral-200/80 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-100 text-xs text-neutral-500">
+              <span>
+                Order Ref: <span className="font-mono font-bold text-neutral-800">{order.orderNo}</span>
               </span>
+              <span className="px-2.5 py-0.5 rounded-full bg-neutral-950 text-[#a3e635] font-black text-[11px]">
+                {order.channel}
+              </span>
+            </div>
+
+            {/* Amount Box */}
+            <div className="bg-neutral-950 border border-[#a3e635]/40 p-4 rounded-xl flex items-center justify-between text-white">
+              <div>
+                <span className="text-xs text-neutral-300 font-medium block">Exact Transfer Amount:</span>
+                <span className="text-2xl font-black text-[#a3e635] tracking-tight">
+                  ₦ {order.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+
               <button
-                type="button"
-                onClick={handleCopyAmount}
-                className="p-1.5 rounded-lg bg-sky-100 text-blue-900 hover:bg-sky-200 transition cursor-pointer"
-                title="Copy Amount"
+                onClick={() => copyText(order.amount.toString(), true)}
+                className="p-2 text-xs font-black text-neutral-950 bg-[#a3e635] hover:bg-[#84cc16] rounded-lg flex items-center gap-1.5 transition active:scale-95 cursor-pointer"
               >
-                {copiedAmount ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-slate-700" />}
+                {copiedAmount ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedAmount ? 'Copied' : 'Copy'}</span>
               </button>
             </div>
-            <p className="text-[10px] text-blue-700 font-bold pt-1">
-              • Transfer exact amount to avoid automated settlement delays
+
+            {/* Platform Receiving Bank Details */}
+            <div className="space-y-3 text-xs pt-1">
+              <div className="flex justify-between items-center py-2 border-b border-neutral-100">
+                <span className="text-neutral-500 font-medium">Destination Bank:</span>
+                <span className="font-bold text-neutral-900 text-right">{order.bankName}</span>
+              </div>
+
+              <div className="flex justify-between items-center py-2 border-b border-neutral-100">
+                <span className="text-neutral-500 font-medium">Account Name:</span>
+                <span className="font-bold text-neutral-900 text-right">{order.accountName}</span>
+              </div>
+
+              <div className="flex justify-between items-center py-2">
+                <span className="text-neutral-500 font-medium">Account Number:</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-base font-black text-neutral-900 tracking-wider">
+                    {order.accountNo}
+                  </span>
+                  <button
+                    onClick={() => copyText(order.accountNo, false)}
+                    className="p-1.5 text-neutral-950 bg-[#a3e635] hover:bg-[#84cc16] rounded-md transition active:scale-95 cursor-pointer"
+                    title="Copy Account Number"
+                  >
+                    {copiedAcc ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Automatic Reconciliation Notice */}
+          <div className="p-4 bg-white rounded-2xl border border-neutral-200/80 shadow-2xs space-y-2">
+            <div className="flex items-center gap-2 text-neutral-900 font-bold text-xs">
+              <ShieldCheck className="w-4 h-4 text-[#65a30d]" />
+              <span>Direct Bank Settlement Protocol</span>
+            </div>
+            <p className="text-[11px] text-neutral-600 leading-relaxed">
+              1. Transfer the exact amount of <strong className="text-neutral-900">₦ {order.amount.toLocaleString()}</strong> using your banking app or USSD to the receiving account above.
+            </p>
+            <p className="text-[11px] text-neutral-600 leading-relaxed">
+              2. After completing the bank transfer, tap <strong className="text-[#4d7c0f]">"I Have Made This Payment"</strong> below to submit your payment details for automatic clearance.
             </p>
           </div>
 
-          {/* Bank Escrow Details Card */}
-          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-md space-y-4 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-sky-400 via-blue-600 to-indigo-800" />
-
-            <div className="flex items-center justify-between pt-1">
-              <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-blue-700" />
-                <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                  Official Escrow Depository
-                </h3>
-              </div>
-              <DangoteLogo variant="icon" color="#1d4ed8" className="w-6 h-6" />
-            </div>
-
-            <div className="bg-slate-50 rounded-2xl p-4 border border-slate-200 space-y-3.5">
-              {/* Destination Bank Name - Large & Clear */}
-              <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold shrink-0 shadow-2xs">
-                    <Building2 className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-blue-700 uppercase font-black tracking-wider">Destination Bank</div>
-                    <div className="text-base font-black text-slate-900 tracking-wide font-mono">
-                      {displayBankName}
-                    </div>
-                  </div>
-                </div>
-                <span className="px-2.5 py-1 rounded-full bg-blue-100 text-blue-800 text-[10px] font-black uppercase border border-blue-300">
-                  Verified
-                </span>
-              </div>
-
-              {/* Account Number */}
-              <div className="space-y-1">
-                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                  Escrow Account Number
-                </div>
-                <div className="flex items-center justify-between bg-sky-50/80 border border-blue-300 rounded-2xl p-3.5">
-                  <span className="text-2xl sm:text-3xl font-black font-mono text-blue-700 tracking-widest">
-                    {displayAccountNo}
-                  </span>
-                  <button
-                    onClick={handleCopyAccount}
-                    className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black shadow-2xs transition-butter spring-press flex items-center gap-1.5 cursor-pointer border border-blue-500 shrink-0"
-                  >
-                    {copiedAccount ? (
-                      <>
-                        <Check className="w-4 h-4 text-sky-200" />
-                        <span>Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-4 h-4" />
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Account Name - Leviathan Hypermarket Prominent */}
-              <div className="space-y-1">
-                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                  Beneficiary Account Name
-                </div>
-                <div className="flex items-center justify-between bg-white border border-slate-300 rounded-2xl p-3.5 shadow-2xs">
-                  <span className="text-sm sm:text-base font-black text-slate-900 uppercase font-mono tracking-tight">
-                    {displayAccountName}
-                  </span>
-                  <button
-                    onClick={handleCopyAccountName}
-                    className="px-3 py-1.5 rounded-lg bg-slate-100 border border-slate-300 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-butter flex items-center gap-1 cursor-pointer shrink-0"
-                  >
-                    {copiedAccountName ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-slate-600" />
-                        <span>Copy Name</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Quick Instruction List */}
-            <div className="space-y-2 text-xs text-slate-600 pt-1">
-              <div className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 border border-blue-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                  1
-                </span>
-                <span>Open your bank app or USSD portal and transfer <strong>₦{order.amount.toLocaleString()}</strong> to <strong>{displayBankName}</strong> account: <strong>{displayAccountNo}</strong> ({displayAccountName}).</span>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="w-4 h-4 rounded-full bg-blue-100 text-blue-700 border border-blue-300 flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5">
-                  2
-                </span>
-                <span>After completing the transfer, click <strong>"I Have Completed Transfer"</strong> below to enter your sender account details.</span>
-              </div>
-            </div>
-
-            {/* Action Button */}
+          {/* Action Buttons */}
+          <div className="space-y-2 pt-2">
             <button
-              onClick={() => setCurrentStep('proof_form')}
-              className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-black shadow-md spring-press transition-butter flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider border border-blue-500"
+              onClick={() => setCurrentStep('details_form')}
+              className="w-full py-3.5 rounded-full bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 text-sm font-black shadow-md active:scale-98 transition text-center flex items-center justify-center gap-2 cursor-pointer"
             >
-              <span>I Have Completed Transfer</span>
-              <ArrowRight className="w-4 h-4 text-sky-200" />
+              <span>I Have Made This Payment</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
-          </div>
 
-          {/* Security Disclaimer */}
-          <div className="p-3.5 bg-white rounded-2xl border border-slate-200 text-[11px] text-slate-600 flex items-center gap-2.5 shadow-2xs">
-            <ShieldCheck className="w-5 h-5 text-blue-700 shrink-0" />
-            <span>Encrypted depository protocol. Balance updates instantly upon treasury credit confirmation.</span>
+            <button
+              onClick={onBack}
+              className="w-full py-2.5 rounded-full text-neutral-600 text-xs font-semibold hover:bg-neutral-200 transition text-center cursor-pointer"
+            >
+              Cancel Order
+            </button>
           </div>
         </div>
       )}
 
-      {/* STEP 2: PROOF FORM SCREEN */}
-      {currentStep === 'proof_form' && (
-        <div className="p-4 space-y-4 max-w-md mx-auto animate-page-in">
-          <form onSubmit={handleFormSubmit} className="bg-white rounded-3xl p-5 border border-slate-200 shadow-md space-y-4 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-sky-400 via-blue-600 to-indigo-800" />
+      {/* STEP 2: SLEEK PAYMENT DETAILS FORM */}
+      {currentStep === 'details_form' && (
+        <div className="p-4 space-y-4 max-w-md mx-auto animate-in fade-in slide-in-from-right-4 duration-200">
+          <form onSubmit={handleSubmitPaymentDetails} className="space-y-4">
+            <div className="bg-white rounded-2xl p-5 shadow-xs border border-neutral-200/80 space-y-4">
+              <div className="flex items-center gap-2 pb-3 border-b border-neutral-100">
+                <div className="p-1.5 bg-neutral-950 text-[#a3e635] rounded-lg">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-neutral-900">Payment Verification</h2>
+                  <p className="text-[11px] text-neutral-500">Enter the sender details used to make the transfer</p>
+                </div>
+              </div>
 
-            <div className="pt-1">
-              <h2 className="text-base font-black text-slate-900">Payment Verification Form</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Enter the bank and account name you sent the ₦{order.amount.toLocaleString()} from so our treasury panel matches your deposit to <strong>{displayAccountName}</strong>.
-              </p>
-            </div>
+              {/* Amount reminder chip */}
+              <div className="bg-neutral-50 p-3 rounded-xl flex items-center justify-between text-xs">
+                <span className="text-neutral-500">Transfer Sum:</span>
+                <span className="font-extrabold text-neutral-900">₦ {order.amount.toLocaleString()}</span>
+              </div>
 
-            <div className="space-y-3.5 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-              {/* Bank Name Selector */}
+              {/* Sender Bank Field */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  <span className="text-rose-600 font-black mr-1">*</span>
-                  Sender Bank Name
+                <label className="block text-xs font-bold text-neutral-800">
+                  Bank You Paid From (Sender Bank)
                 </label>
-                <select
-                  value={senderBank}
-                  onChange={(e) => setSenderBank(e.target.value)}
-                  className="w-full px-3.5 py-3.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-600 transition-colors cursor-pointer"
-                >
-                  {NIGERIAN_BANKS.map((b) => (
-                    <option key={b} value={b} className="text-slate-900">
-                      {b}
-                    </option>
-                  ))}
-                  <option value="Other" className="text-blue-700 font-bold">
-                    Other Commercial / Microfinance Bank...
-                  </option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={selectedBank}
+                    onChange={(e) => setSelectedBank(e.target.value)}
+                    className="w-full px-3.5 py-3 rounded-xl bg-neutral-50 border border-neutral-200 text-xs font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#a3e635] transition appearance-none cursor-pointer"
+                  >
+                    {POPULAR_NIGERIAN_BANKS.map((b) => (
+                      <option key={b} value={b}>
+                        {b}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-neutral-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
 
-                {senderBank === 'Other' && (
+                {selectedBank === 'Other Bank' && (
                   <input
                     type="text"
-                    placeholder="Type your bank name e.g. Moniepoint, VFD, Sparkle"
-                    value={customBank}
-                    onChange={(e) => setCustomBank(e.target.value)}
-                    className="w-full mt-2 px-3.5 py-3 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-600"
+                    placeholder="Type name of your bank"
+                    value={customBankName}
+                    onChange={(e) => setCustomBankName(e.target.value)}
+                    className="w-full mt-2 px-3.5 py-2.5 rounded-xl bg-neutral-50 border border-neutral-200 text-xs font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#a3e635]"
                   />
                 )}
               </div>
 
               {/* Payee / Sender Account Name */}
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-700">
-                  <span className="text-rose-600 font-black mr-1">*</span>
+                <label className="block text-xs font-bold text-neutral-800">
                   Sender Account Name (Name on Account)
                 </label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-neutral-400">
                     <User className="w-4 h-4" />
                   </div>
                   <input
@@ -409,20 +337,28 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
                       setPayeeName(e.target.value);
                       if (formError) setFormError('');
                     }}
-                    className="w-full pl-9 pr-3.5 py-3.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-slate-900 focus:outline-none focus:border-blue-600 placeholder:text-slate-400 uppercase transition-colors"
+                    className="w-full pl-9 pr-3.5 py-3 rounded-xl bg-neutral-50 border border-neutral-200 text-xs font-medium text-neutral-900 focus:outline-none focus:ring-2 focus:ring-[#a3e635] placeholder:text-neutral-400"
                   />
                 </div>
-                <p className="text-[10px] text-slate-500 font-medium">
-                  Must match the name that appears on your bank debit alert or transfer receipt.
+                <p className="text-[10px] text-neutral-400">
+                  Must match the name that appears on your bank debit alert/receipt.
                 </p>
               </div>
 
               {formError && (
-                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-xs text-rose-700 font-bold">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
                   <span>{formError}</span>
                 </div>
               )}
+            </div>
+
+            {/* Notice */}
+            <div className="p-3 bg-lime-50 border border-lime-200 rounded-xl text-[11px] text-lime-950 flex items-start gap-2">
+              <Sparkles className="w-4 h-4 shrink-0 text-[#65a30d] mt-0.5" />
+              <span>
+                Once submitted, your payment is logged in the administrative clearance ledger and marked as <strong>Processing</strong>. Balance updates automatically as soon as treasury approves the alert.
+              </span>
             </div>
 
             {/* Buttons */}
@@ -430,21 +366,22 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-black shadow-md spring-press transition-butter flex items-center justify-center gap-2 cursor-pointer disabled:opacity-75 uppercase tracking-wider border border-blue-500"
+                className="w-full py-3.5 rounded-full bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 text-sm font-black shadow-md active:scale-98 transition text-center flex items-center justify-center gap-2 disabled:opacity-75 cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin text-sky-200" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                     <span>Transmitting Payment Details...</span>
                   </>
                 ) : (
                   <span>Submit Payment for Verification</span>
                 )}
               </button>
+
               <button
                 type="button"
                 onClick={() => setCurrentStep('instructions')}
-                className="w-full py-2.5 rounded-xl text-slate-500 text-xs font-bold hover:text-slate-800 transition text-center cursor-pointer"
+                className="w-full py-2.5 rounded-full text-neutral-600 text-xs font-semibold hover:bg-neutral-200 transition text-center cursor-pointer"
               >
                 Back to Bank Account Details
               </button>
@@ -453,76 +390,71 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
         </div>
       )}
 
-      {/* STEP 3: PAYMENT PROCESSING SCREEN */}
+      {/* STEP 3: PAYMENT PROCESSING / SUBMITTED SCREEN */}
       {currentStep === 'processing_status' && (
-        <div className="p-4 space-y-4 max-w-md mx-auto animate-page-in">
-          <div className="bg-white rounded-3xl p-6 shadow-md border border-slate-200 text-center space-y-4 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-sky-400 via-blue-600 to-indigo-800" />
-
-            <div className="relative w-16 h-16 mx-auto flex items-center justify-center pt-2">
-              <div className="relative w-14 h-14 rounded-full bg-blue-50 border-2 border-blue-400 flex items-center justify-center text-blue-700 shadow-2xs">
-                <Loader2 className="w-7 h-7 animate-spin text-blue-600" />
+        <div className="p-4 space-y-4 max-w-md mx-auto animate-in fade-in zoom-in-95 duration-300">
+          <div className="bg-white rounded-3xl p-6 shadow-sm border border-neutral-200 text-center space-y-4">
+            {/* Animated Status Pulse */}
+            <div className="relative w-20 h-20 mx-auto flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-[#a3e635]/30 animate-ping" />
+              <div className="relative w-16 h-16 rounded-full bg-neutral-950 border-2 border-[#a3e635] flex items-center justify-center text-[#a3e635] shadow-inner">
+                <Loader2 className="w-8 h-8 animate-spin" />
               </div>
             </div>
 
             <div>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-300 text-blue-800 text-xs font-bold mb-2">
-                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#a3e635] text-neutral-950 text-xs font-black mb-2">
+                <span className="w-2 h-2 rounded-full bg-neutral-950 animate-pulse" />
                 Deposit Processing
               </div>
-              <h2 className="text-xl font-black text-slate-900">Payment Submitted</h2>
-              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+              <h2 className="text-xl font-black text-neutral-900">Payment Submitted</h2>
+              <p className="text-xs text-neutral-500 mt-1 max-w-xs mx-auto">
                 Your deposit details have been recorded and sent to the administrative panel for approval.
               </p>
             </div>
 
             {/* Summary Ticket */}
-            <div className="bg-slate-50 rounded-2xl p-4 text-xs text-left space-y-2.5 border border-slate-200 font-medium">
-              <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                <span className="text-slate-500">Order Reference</span>
-                <span className="font-mono font-black text-slate-900">{order.orderNo}</span>
+            <div className="bg-neutral-50 rounded-2xl p-4 text-xs text-left space-y-2.5 border border-neutral-200/70">
+              <div className="flex justify-between items-center py-1 border-b border-neutral-200/60">
+                <span className="text-neutral-500">Order Reference</span>
+                <span className="font-mono font-bold text-neutral-900">{order.orderNo}</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                <span className="text-slate-500">Amount</span>
-                <span className="font-black text-blue-700 text-sm font-mono">₦ {order.amount.toLocaleString()}</span>
+              <div className="flex justify-between items-center py-1 border-b border-neutral-200/60">
+                <span className="text-neutral-500">Amount</span>
+                <span className="font-black text-[#4d7c0f] text-sm">₦ {order.amount.toLocaleString()}</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                <span className="text-slate-500">Destination Bank</span>
-                <span className="font-bold text-slate-900 font-mono">{displayBankName}</span>
+              <div className="flex justify-between items-center py-1 border-b border-neutral-200/60">
+                <span className="text-neutral-500">Sender Bank</span>
+                <span className="font-bold text-neutral-900">{finalSenderBank}</span>
               </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                <span className="text-slate-500">Beneficiary Name</span>
-                <span className="font-bold text-slate-900 font-mono uppercase">{displayAccountName}</span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                <span className="text-slate-500">Sender Bank</span>
-                <span className="font-bold text-slate-900">{finalSenderBank}</span>
-              </div>
-              <div className="flex justify-between items-center py-1 border-b border-slate-200">
-                <span className="text-slate-500">Sender Account Name</span>
-                <span className="font-bold text-slate-900 uppercase">{payeeName}</span>
+              <div className="flex justify-between items-center py-1 border-b border-neutral-200/60">
+                <span className="text-neutral-500">Payee Account Name</span>
+                <span className="font-bold text-neutral-900">{payeeName}</span>
               </div>
               <div className="flex justify-between items-center py-1">
-                <span className="text-slate-500">Clearance Queue</span>
-                <span className="text-blue-700 font-bold flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-blue-600" />
-                  Awaiting Treasury Audit
-                </span>
+                <span className="text-neutral-500">Clearance Queue</span>
+                <span className="text-amber-700 font-bold">Awaiting Treasury Match</span>
               </div>
             </div>
 
+            <div className="p-3 bg-neutral-100/80 rounded-xl text-[11px] text-neutral-600 leading-relaxed text-left">
+              💡 <strong>What happens next?</strong> Once the treasury auditor confirms the credit alert corresponding to your payee name on the admin panel, your wallet balance will be credited automatically.
+            </div>
+
+            {/* Actions */}
             <div className="space-y-2 pt-2">
               {onGoToRecords && (
                 <button
                   onClick={onGoToRecords}
-                  className="w-full py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-black transition shadow-md spring-press cursor-pointer uppercase tracking-wider border border-blue-500"
+                  className="w-full py-3 rounded-full bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 text-xs font-black transition shadow-sm active:scale-98 cursor-pointer"
                 >
                   View in Transaction Records
                 </button>
               )}
+
               <button
                 onClick={onBack}
-                className="w-full py-3 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
+                className="w-full py-2.5 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold transition cursor-pointer"
               >
                 Return to Dashboard
               </button>
@@ -533,4 +465,3 @@ export const CheckoutScreen: React.FC<CheckoutScreenProps> = ({
     </div>
   );
 };
-

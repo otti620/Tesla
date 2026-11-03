@@ -27,127 +27,127 @@ export const INITIAL_PRODUCTS: VIPProduct[] = [
   {
     id: 'vip1',
     vipLevel: 'VIP1',
-    title: 'Dangote Express Micro Share Tranche (₦5,000)',
-    price: 5000,
-    validityDays: 60,
-    dailyIncome: 600,
-    totalIncome: 36000,
+    title: 'Ola Mini City Cab Hatch',
+    price: 4000,
+    validityDays: 100,
+    dailyIncome: 800,
+    totalIncome: 80000,
     status: 'available',
-    image: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800&auto=format&fit=crop&q=80',
-    category: 'Public IPO'
+    image: 'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=800&auto=format&fit=crop&q=80',
+    category: 'Ola Mini Fleet'
   },
   {
     id: 'vip2',
     vipLevel: 'VIP2',
-    title: 'Dangote Retail Class-A Shares (Lekki Single-Train)',
-    price: 7500,
-    validityDays: 60,
-    dailyIncome: 950,
-    totalIncome: 57000,
+    title: 'Ola Prime Sedan Executive',
+    price: 10000,
+    validityDays: 100,
+    dailyIncome: 2300,
+    totalIncome: 230000,
     status: 'available',
-    image: 'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?w=800&auto=format&fit=crop&q=80',
-    category: 'Public IPO'
+    image: 'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=800&auto=format&fit=crop&q=80',
+    category: 'Prime Sedan'
   },
   {
     id: 'vip3',
     vipLevel: 'VIP3',
-    title: 'Dangote Polypropylene & Fertilizer Complex Tranche',
-    price: 15000,
-    validityDays: 60,
-    dailyIncome: 2100,
-    totalIncome: 126000,
+    title: 'Ola Prime Plus Comfort Cab',
+    price: 20000,
+    validityDays: 100,
+    dailyIncome: 4800,
+    totalIncome: 480000,
     status: 'available',
-    image: 'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?w=800&auto=format&fit=crop&q=80',
-    category: 'Petrochemical VIP Institutional'
+    image: 'https://images.unsplash.com/photo-1550355291-bbee04a92027?w=800&auto=format&fit=crop&q=80',
+    category: 'Prime Plus Fleet'
   },
   {
     id: 'vip4',
     vipLevel: 'VIP4',
-    title: 'Dangote Deepwater Marine Terminal Quota',
-    price: 30000,
-    validityDays: 60,
-    dailyIncome: 4500,
-    totalIncome: 270000,
+    title: 'Ola Prime SUV 6-Seater XL',
+    price: 40000,
+    validityDays: 100,
+    dailyIncome: 10000,
+    totalIncome: 1000000,
     status: 'available',
-    image: 'https://images.unsplash.com/photo-1565793979201-3e81edc2d63a?w=800&auto=format&fit=crop&q=80',
-    category: 'Petrochemical VIP Institutional'
+    image: 'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?w=800&auto=format&fit=crop&q=80',
+    category: 'Prime SUV Fleet'
   },
   {
     id: 'vip5',
     vipLevel: 'VIP5',
-    title: 'Dangote Crude Super-Tanker Fleet Syndicate',
-    price: 75000,
-    validityDays: 60,
-    dailyIncome: 12000,
-    totalIncome: 720000,
+    title: 'Ola Lux Chauffeur Limousine',
+    price: 70000,
+    validityDays: 100,
+    dailyIncome: 18000,
+    totalIncome: 1800000,
     status: 'available',
-    image: 'https://images.unsplash.com/photo-1558449028-b53a39d100fc?w=800&auto=format&fit=crop&q=80',
-    category: 'Petrochemical VIP Institutional'
+    image: 'https://images.unsplash.com/photo-1563720223185-11003d516935?w=800&auto=format&fit=crop&q=80',
+    category: 'Ola Lux Division'
   },
   {
     id: 'vip6',
     vipLevel: 'VIP6',
-    title: 'Dangote Refinery 650,000 BPD Mega-Train Share',
-    price: 150000,
-    validityDays: 60,
-    dailyIncome: 26000,
-    totalIncome: 1560000,
+    title: 'Ola Electric S1 Pro & EV Cab Fleet',
+    price: 120000,
+    validityDays: 100,
+    dailyIncome: 32000,
+    totalIncome: 3200000,
     status: 'available',
-    image: 'https://images.unsplash.com/photo-1513836279014-a89f7a76ae86?w=800&auto=format&fit=crop&q=80',
-    category: 'Petrochemical VIP Institutional'
+    image: 'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=800&auto=format&fit=crop&q=80',
+    category: 'Ola Electric Fleet'
   },
   {
     id: 'vip7',
     vipLevel: 'VIP7',
-    title: 'Dangote Pan-African Petrochemical Holding',
-    price: 300000,
-    validityDays: 60,
-    dailyIncome: 56000,
-    totalIncome: 3360000,
+    title: 'Ola Autonomous Smart Pod Cab',
+    price: 250000,
+    validityDays: 100,
+    dailyIncome: 70000,
+    totalIncome: 7000000,
     status: 'coming_soon',
-    image: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=800&auto=format&fit=crop&q=80',
-    category: 'Institutional Equity'
+    image: 'https://images.unsplash.com/photo-1617788138017-80ad40651399?w=800&auto=format&fit=crop&q=80',
+    category: 'Next-Gen Mobility'
   },
   {
     id: 'vip8',
     vipLevel: 'VIP8',
-    title: 'Dangote Global Energy Syndicate Equity',
-    price: 600000,
-    validityDays: 60,
-    dailyIncome: 120000,
-    totalIncome: 7200000,
+    title: 'Ola Express Intercity Shuttle Fleet',
+    price: 500000,
+    validityDays: 100,
+    dailyIncome: 145000,
+    totalIncome: 14500000,
     status: 'coming_soon',
-    image: 'https://images.unsplash.com/photo-1508873696983-2df57046475b?w=800&auto=format&fit=crop&q=80',
-    category: 'Institutional Equity'
+    image: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800&auto=format&fit=crop&q=80',
+    category: 'Intercity Transit'
   },
   {
     id: 'vip9',
     vipLevel: 'VIP9',
-    title: 'Dangote Board of Governors Sovereign Share',
-    price: 1200000,
-    validityDays: 60,
-    dailyIncome: 260000,
-    totalIncome: 15600000,
+    title: 'OlaCabs Metropolitan Mega Hub',
+    price: 1000000,
+    validityDays: 100,
+    dailyIncome: 300000,
+    totalIncome: 30000000,
     status: 'coming_soon',
-    image: 'https://images.unsplash.com/photo-1509391365360-2e959784a276?w=800&auto=format&fit=crop&q=80',
-    category: 'Sovereign Syndicate'
+    image: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?w=800&auto=format&fit=crop&q=80',
+    category: 'Metropolitan Hub'
   }
 ];
 
 export const INITIAL_GIFT_CODES: GiftCode[] = [];
 
 export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
-  signupBonus: 1000,
-  dailyCheckInBonus: 50,
+  signupBonus: 1100,
+  dailyCheckInBonus: 10,
   withdrawalTaxRate: 0.18,
-  minWithdrawal: 1500,
+  minWithdrawal: 800,
   telegramLink: 'https://t.me/teslainvestment456',
   telegramGroupLink: 'https://t.me/teslainvestment456',
-  customerServiceManagerLink: 'https://t.me/Abigail_faith56',
-  customerServiceUsername: 'Abigail_faith56',
-  announcementNotice: 'Welcome to Dangote Petroleum Refinery Shareholder Portal. Join our official Telegram Syndicate (t.me/teslainvestment456) for daily IPO updates and shareholder dividends. For 1-on-1 manager support, contact @Abigail_faith56 on Telegram (t.me/Abigail_faith56).',
-  level1CommissionPct: 15,
-  level2CommissionPct: 3,
+  customerServiceManagerLink: 'https://t.me/sallyservice4',
+  customerServiceUsername: 'sallyservice4',
+  announcementNotice: 'Welcome to Ola Cabs (OlaCabs) Mobility Fleet. Join our official Telegram Group (t.me/teslainvestment456) for daily giveaways and VIP community updates. For member support, reach our Customer Service Manager Sally directly on Telegram (t.me/sallyservice4).',
+  level1CommissionPct: 25,
+  level2CommissionPct: 1,
   level3CommissionPct: 1,
   withdrawalStartHour: 9,
   withdrawalEndHour: 17,
@@ -160,12 +160,12 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
 };
 
 export const PLATFORM_ANNOUNCEMENTS = [
-  'Welcome to Dangote Petroleum Refinery Shareholder Portal — ₦1,000 Shareholder Welcome Bonus credited instantly',
-  'Official Telegram Syndicate: Join t.me/teslainvestment456 for exclusive IPO allotments and dividend updates',
-  'Investor Support Manager: Reach Manager Abigail at @Abigail_faith56 (t.me/Abigail_faith56)',
+  'Welcome to Ola Cabs (OlaCabs) — ₦1,100 Welcome Bonus credited upon registration',
+  'Official Telegram Group: Join t.me/teslainvestment456 for exclusive bonuses and events',
+  'Customer Support: Reach Customer Service Manager Sally at t.me/sallyservice4',
   'Official Withdrawal Schedule: Mon–Sat 9:00 AM – 5:00 PM | Sundays strictly 2:00 PM – 5:00 PM',
-  'Affiliate Shareholder Network: Earn up to 15% instant commission on tier share activations',
+  'Affiliate Referral Network: Earn up to 25% instant commission on team cab fleet activations',
 ];
 
 export const PLATFORM_TICKERS = PLATFORM_ANNOUNCEMENTS;
-export const MOCK_TICKERS = PLATFORM_TICKERS;
+export const MOCK_TICKERS = PLATFORM_TICKERS; // Backwards-compatible export

@@ -118,6 +118,8 @@ export function normalizeProductCatalog(products: VIPProduct[] | undefined | nul
         validityDays: canonical.validityDays,
         vipLevel: canonical.vipLevel,
         title: canonical.title,
+        category: canonical.category,
+        image: canonical.image,
         status: p.status || canonical.status,
       };
     }

@@ -805,20 +805,20 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             <div className="h-6 w-px bg-neutral-800 hidden sm:block" />
 
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-red-600/15 text-red-500 border border-red-500/30 flex items-center justify-center shadow-xs">
+              <div className="w-9 h-9 rounded-xl bg-[#a3e635]/15 text-[#a3e635] border border-[#a3e635]/35 flex items-center justify-center shadow-xs">
                 <ShieldAlert className="w-5 h-5" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-sm sm:text-base font-black tracking-tight text-white uppercase">
-                    Dangote Refinery HQ Admin
+                    Ola Cabs Admin Central
                   </h1>
-                  <span className="text-[10px] bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded-full font-mono font-bold">
-                    FIREBASE MASTER
+                  <span className="text-[10px] bg-[#a3e635] text-neutral-950 px-2 py-0.5 rounded-full font-mono font-black">
+                    ROOT MASTER
                   </span>
                 </div>
                 <p className="text-xs text-neutral-400 hidden sm:block">
-                  On-Demand Cloud Operations • Verified Node: {user.phone}
+                  On-Demand Cloud &amp; Local Sync • Verified Node: {user.phone}
                 </p>
               </div>
             </div>
@@ -827,7 +827,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
           <div className="flex items-center gap-3">
             {/* Last Fetched Status Badge */}
             <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs bg-neutral-900 border-neutral-800 text-neutral-300">
-              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <Database className="w-3.5 h-3.5 text-[#a3e635]" />
               <span className="font-mono text-[11px]">
                 {cloudData ? `Fetched: ${new Date(cloudData.lastFetchedAt).toLocaleTimeString()}` : 'Initializing...'}
               </span>
@@ -836,7 +836,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             {/* Withdrawal Window Status Badge */}
             <div className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs ${
               hoursCheck.isAllowed 
-                ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-400' 
+                ? 'bg-lime-950/40 border-[#a3e635]/30 text-[#a3e635]' 
                 : 'bg-amber-950/40 border-amber-500/30 text-amber-400'
             }`}>
               <Clock className="w-3.5 h-3.5" />
@@ -860,7 +860,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             <button 
               onClick={() => loadDataOnDemand(true)}
               disabled={isLoadingCloud}
-              className="text-xs text-white flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 border border-red-500/40 transition cursor-pointer font-bold shadow-xs disabled:opacity-50"
+              className="text-xs text-neutral-950 flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#a3e635] hover:bg-[#84cc16] border border-[#84cc16] transition cursor-pointer font-black shadow-xs disabled:opacity-50"
               title="Fetch latest data on demand from Firebase"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingCloud ? 'animate-spin' : ''}`} />
@@ -872,8 +872,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
       {/* Cloud Notification Toast/Banner */}
       {successMsg && (
-        <div className="bg-emerald-500/15 border-b border-emerald-500/30 text-emerald-300 px-6 py-2.5 text-xs font-semibold flex items-center justify-center gap-2 animate-in fade-in duration-150">
-          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+        <div className="bg-lime-500/15 border-b border-[#a3e635]/30 text-[#a3e635] px-6 py-2.5 text-xs font-bold flex items-center justify-center gap-2 animate-in fade-in duration-150">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-[#a3e635]" />
           <span>{successMsg}</span>
         </div>
       )}
@@ -900,14 +900,14 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
         <aside className="w-full md:w-64 shrink-0 space-y-1">
           <div className="bg-neutral-900 border border-neutral-800/80 rounded-2xl p-2.5 space-y-1 shadow-sm">
             <div className="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-neutral-400">
-              Operations (Firebase)
+              Operations (Ola Cabs)
             </div>
 
             <button
               onClick={() => setActiveTab('deposits')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'deposits'
-                  ? 'bg-emerald-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -916,8 +916,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 <span>Deposits Approval</span>
               </div>
               {pendingDeposits.length > 0 && (
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  activeTab === 'deposits' ? 'bg-white text-emerald-700' : 'bg-emerald-500 text-white animate-pulse'
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'deposits' ? 'bg-neutral-950 text-[#a3e635]' : 'bg-[#a3e635] text-neutral-950 animate-pulse'
                 }`}>
                   {pendingDeposits.length}
                 </span>
@@ -926,9 +926,9 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
             <button
               onClick={() => setActiveTab('withdrawals')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'withdrawals'
-                  ? 'bg-red-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -937,8 +937,8 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 <span>Withdrawals Queue</span>
               </div>
               {pendingWithdrawals.length > 0 && (
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                  activeTab === 'withdrawals' ? 'bg-white text-red-600' : 'bg-red-600 text-white'
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'withdrawals' ? 'bg-neutral-950 text-[#a3e635]' : 'bg-[#a3e635] text-neutral-950'
                 }`}>
                   {pendingWithdrawals.length}
                 </span>
@@ -947,9 +947,9 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
             <button
               onClick={() => setActiveTab('overview')}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'overview'
-                  ? 'bg-red-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -959,9 +959,9 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
             <button
               onClick={() => setActiveTab('users')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'users'
-                  ? 'bg-red-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -969,16 +969,18 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 <Users className="w-4 h-4" />
                 <span>Registered Users</span>
               </div>
-              <span className="text-[10px] text-neutral-400 font-mono">
+              <span className={`text-[10px] font-mono font-bold ${
+                activeTab === 'users' ? 'text-neutral-900' : 'text-neutral-400'
+              }`}>
                 {allUsersList.length}
               </span>
             </button>
 
             <button
               onClick={() => setActiveTab('products')}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'products'
-                  ? 'bg-red-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -988,9 +990,9 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
             <button
               onClick={() => setActiveTab('gift_codes')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'gift_codes'
-                  ? 'bg-red-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -998,7 +1000,9 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 <Gift className="w-4 h-4" />
                 <span>Gift Bonus Codes</span>
               </div>
-              <span className="text-[10px] text-neutral-400 font-mono">
+              <span className={`text-[10px] font-mono font-bold ${
+                activeTab === 'gift_codes' ? 'text-neutral-900' : 'text-neutral-400'
+              }`}>
                 {giftCodes.length}
               </span>
             </button>
@@ -1009,9 +1013,9 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
 
             <button
               onClick={() => setActiveTab('settings')}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold transition cursor-pointer ${
+              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${
                 activeTab === 'settings'
-                  ? 'bg-red-600 text-white shadow-md'
+                  ? 'bg-[#a3e635] text-neutral-950 font-black shadow-md'
                   : 'text-neutral-300 hover:bg-neutral-800/60 hover:text-white'
               }`}
             >
@@ -1023,14 +1027,14 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
           {/* Quick Info Box in Sidebar */}
           <div className="bg-neutral-900/60 border border-neutral-800/60 rounded-2xl p-4 text-xs space-y-2.5 hidden md:block">
             <div className="flex items-center gap-2 text-neutral-300 font-bold">
-              <Database className="w-4 h-4 text-emerald-400" />
-              <span>Cloud Firestore Status</span>
+              <Database className="w-4 h-4 text-[#a3e635]" />
+              <span>Cloud &amp; Local Sync</span>
             </div>
             <p className="text-neutral-400 leading-relaxed text-[11px]">
-              Data is loaded strictly on demand. No open socket subscriptions or passive background listeners are maintained.
+              Data loads on demand with automatic local registry fallback so all admin controls work seamlessly online or offline.
             </p>
             <div className="pt-2 border-t border-neutral-800 text-[10px] text-neutral-400 font-mono">
-              Database: <span className="text-emerald-400">(default) • dangote-refinery</span>
+              Database: <span className="text-[#a3e635]">(default) • Ola Cabs</span>
             </div>
           </div>
         </aside>
@@ -2524,13 +2528,13 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-base font-bold text-white">Dangote Refinery VIP Share Tranches Management</h3>
+                  <h3 className="text-base font-bold text-white">Tesla Fleet VIP Products Management</h3>
                   <p className="text-xs text-neutral-400">
                     Product definitions saved directly to Firebase Firestore system state.
                   </p>
                 </div>
                 <span className="text-xs font-mono bg-neutral-900 border border-neutral-800 px-3 py-1 rounded-full text-neutral-300">
-                  {products.length} Share Tranches in Catalog
+                  {products.length} Vehicles in Catalog
                 </span>
               </div>
 
@@ -2758,8 +2762,6 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 </div>
 
                 <form onSubmit={handleSavePlatformSettingsToFirebase} className="space-y-6">
-
-
                   {/* Withdrawal Schedule Settings */}
                   <div className="bg-neutral-950 border border-neutral-800/80 rounded-xl p-4 space-y-4">
                     <div className="flex items-center justify-between">
@@ -2998,7 +3000,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Official Telegram Group Link</label>
                       <input
                         type="text"
-                        value={editableSettings.telegramGroupLink ?? editableSettings.telegramLink ?? 'https://t.me/dangote_ipo'}
+                        value={editableSettings.telegramGroupLink ?? editableSettings.telegramLink ?? 'https://t.me/teslainvestment456'}
                         onChange={(e) =>
                           setEditableSettings({
                             ...editableSettings,
@@ -3006,7 +3008,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                             telegramGroupLink: e.target.value,
                           })
                         }
-                        placeholder="https://t.me/dangote_ipo"
+                        placeholder="https://t.me/teslainvestment456"
                         className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-purple-500"
                       />
                     </div>
@@ -3015,7 +3017,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                       <label className="text-[11px] text-neutral-400 block mb-1 font-semibold">Customer Service Manager Link</label>
                       <input
                         type="text"
-                        value={editableSettings.customerServiceManagerLink ?? 'https://t.me/Abigail_faith56'}
+                        value={editableSettings.customerServiceManagerLink ?? 'https://t.me/sallyservice4'}
                         onChange={(e) =>
                           setEditableSettings({
                             ...editableSettings,
@@ -3023,7 +3025,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                             customerServiceUsername: e.target.value.replace(/.*t\.me\//, '').replace('@', ''),
                           })
                         }
-                        placeholder="https://t.me/Abigail_faith56"
+                        placeholder="https://t.me/sallyservice4"
                         className="w-full bg-neutral-950 border border-neutral-700 rounded-xl px-3 py-2.5 text-xs text-white font-mono focus:outline-hidden focus:border-purple-500"
                       />
                     </div>

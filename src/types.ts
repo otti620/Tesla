@@ -19,7 +19,7 @@ export interface VIPProduct {
 
 export interface TransactionRecord {
   id: string;
-  type: 'recharge' | 'withdraw' | 'bonus' | 'income' | 'purchase' | 'gift' | 'commission';
+  type: 'recharge' | 'withdraw' | 'bonus' | 'income' | 'purchase' | 'gift' | 'commission' | 'deposit';
   title: string;
   amount: number;
   fee?: number;
@@ -57,7 +57,12 @@ export interface PurchasedProductItem {
 
 export interface CheckoutOrder {
   orderNo: string;
-  amount: number;
+  amount: number; // Amount in USD
+  amountNgn?: number; // Equivalent Amount in NGN
+  currency?: 'USD' | 'USDT' | 'NGN';
+  method?: 'usdt' | 'bank_transfer';
+  network?: 'TRC20' | 'BEP20';
+  usdtAddress?: string;
   channel: string;
   bankName: string;
   accountNo: string;
@@ -80,6 +85,10 @@ export interface PlatformSettings {
   dailyCheckInBonus: number;
   withdrawalTaxRate: number; // e.g. 0.18 for 18%
   minWithdrawal: number;
+  minDeposit?: number;
+  usdToNgnRate?: number; // e.g. 1500
+  usdtTRC20Address?: string;
+  usdtBEP20Address?: string;
   telegramLink: string;
   telegramGroupLink?: string;
   customerServiceManagerLink?: string;

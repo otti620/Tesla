@@ -1,25 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { DollarSign, Coins, CalendarCheck2, Headset, CheckCircle2, Zap, ArrowRight, Flame, Crown, TrendingUp, Users, ShieldCheck, Award, Send } from 'lucide-react';
+import {
+  DollarSign,
+  Coins,
+  CalendarCheck2,
+  Headset,
+  ArrowRight,
+  Flame,
+  Car,
+  Zap,
+  ArrowUpRight,
+  ShieldAlert,
+} from 'lucide-react';
 import { Ticker } from './Ticker';
-import { PLATFORM_TICKERS } from '../data/initialData';
+import { PLATFORM_TICKERS, INITIAL_PRODUCTS } from '../data/initialData';
 import { UserState } from '../types';
-import { DangoteLogo } from './DangoteLogo';
+import { TeslaLogo } from './TeslaLogo';
+import { isAdminUser } from '../utils/adminAuth';
 
 interface HomeScreenProps {
   user: UserState;
-  onNavigate: (screen: 'recharge' | 'withdraw' | 'customer_service' | 'my_store' | 'tasks') => void;
+  onNavigate: (screen: 'recharge' | 'withdraw' | 'customer_service' | 'my_store' | 'admin') => void;
   onOpenGifts: () => void;
   onGoToProducts: () => void;
-  onGoToOrders?: () => void;
+  onGoToPromoters?: () => void;
+  onOpenNotify: () => void;
   onDailyCheckIn: () => void;
-  onOpenTelegramGroupFlyer?: () => void;
 }
 
-const DANGOTE_HERO_IMAGES = [
-  '/Rfnry-Blog.png', // Everything To Know About The Dangote Refinery IPO on Flutterwave
-  '/images-2.jpeg', // Dangote Refinery Facility
-  'https://images.unsplash.com/photo-1578328819058-b69f3a3b0f6b?w=900&auto=format&fit=crop&q=80', // Dangote Refinery
-  'https://images.unsplash.com/photo-1541888946425-d0fbb186c5f7?w=900&auto=format&fit=crop&q=80', // Petrochemical
+const HERO_IMAGES = [
+  'https://images.unsplash.com/photo-1549317661-bd32c8ce0db2?w=900&auto=format&fit=crop&q=80', // Ola Prime Sedan Fleet
+  'https://images.unsplash.com/photo-1555215695-3004980ad54e?w=900&auto=format&fit=crop&q=80', // Ola Executive Cab
+  'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?w=900&auto=format&fit=crop&q=80', // Ola Prime SUV
+  'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?w=900&auto=format&fit=crop&q=80', // Ola Electric Mobility Hub
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -27,58 +39,32 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNavigate,
   onOpenGifts,
   onGoToProducts,
-  onGoToOrders,
+  onGoToPromoters,
+  onOpenNotify,
   onDailyCheckIn,
-  onOpenTelegramGroupFlyer,
 }) => {
   const [currentSlide, setCurrentSlide] = useState(0);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % DANGOTE_HERO_IMAGES.length);
+      setCurrentSlide((prev) => (prev + 1) % HERO_IMAGES.length);
     }, 4500);
     return () => clearInterval(timer);
   }, []);
 
   const today = new Date().toISOString().split('T')[0];
   const hasCheckedInToday = user.lastCheckInDate === today;
+  const featuredFleets = INITIAL_PRODUCTS.filter((p) => p.status === 'available').slice(0, 6);
 
   return (
-    <div className="min-h-screen pb-24 bg-slate-50 text-slate-900 font-sans">
-      {/* Top Header / Status Bar */}
-      <div className="sticky top-0 z-30 bg-white/95 backdrop-blur-md px-4 py-3 flex items-center justify-between border-b border-slate-200 shadow-xs">
-        <div className="flex items-center gap-2">
-          <DangoteLogo variant="wordmark" color="#1d4ed8" className="h-6" />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-700 text-white px-2.5 py-1 rounded-full text-[11px] font-black flex items-center gap-1 shadow-xs border border-sky-300/40">
-            <Crown className="w-3.5 h-3.5 fill-white" />
-            <span>VIP 1</span>
-          </div>
-
-          <button
-            onClick={onDailyCheckIn}
-            disabled={hasCheckedInToday}
-            className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 transition cursor-pointer ${
-              hasCheckedInToday
-                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
-            }`}
-          >
-            <CalendarCheck2 className="w-3.5 h-3.5" />
-            <span>{hasCheckedInToday ? 'Checked In' : 'Check-in'}</span>
-          </button>
-        </div>
-      </div>
-
+    <div className="min-h-screen pb-24 bg-[#f4f6f0] text-neutral-900">
       {/* Top Hero Carousel */}
-      <div className="relative h-52 sm:h-60 w-full overflow-hidden bg-slate-900 shadow-md">
-        {DANGOTE_HERO_IMAGES.map((img, idx) => (
+      <div className="relative h-64 sm:h-72 w-full overflow-hidden bg-neutral-900 shadow-md">
+        {HERO_IMAGES.map((img, idx) => (
           <img
             key={idx}
             src={img}
-            alt="Dangote Refinery"
+            alt="Ola Cabs"
             className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
               idx === currentSlide ? 'opacity-100' : 'opacity-0'
             }`}
@@ -86,224 +72,345 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         ))}
 
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-black/50" />
+        {/* Gradient overlays */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70" />
 
-        <div className="absolute inset-0 p-4.5 flex flex-col justify-between z-10">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full border border-sky-400/40 text-[10px] font-black text-sky-200 uppercase tracking-wider">
-              <ShieldCheck className="w-3 h-3 text-sky-400" />
-              <span>Official Flutterwave IPO Partner</span>
-            </div>
+        {/* Brand header */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 pt-4">
+          <div className="flex items-center gap-2 bg-neutral-950/75 backdrop-blur-md px-3 py-1.5 rounded-full border border-[#a3e635]/40">
+            <TeslaLogo variant="icon" color="#ffffff" className="w-5 h-5" />
+            <span className="text-xs font-black tracking-widest text-white">
+              OLA <span className="text-[#a3e635]">CABS</span>
+            </span>
           </div>
 
-          <div className="space-y-1">
-            <h2 className="text-base sm:text-lg font-black text-white leading-snug drop-shadow-md">
-              Everything To Know About The Dangote Refinery IPO on Flutterwave
-            </h2>
-            <div className="flex items-center justify-between pt-1">
-              <span className="text-xs text-sky-300 font-bold">Dangote Share Tranches Live Now</span>
-              <button
-                onClick={onGoToProducts}
-                className="px-3.5 py-1 rounded-full bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-black shadow-md flex items-center gap-1 transition cursor-pointer"
-              >
-                <span>Acquire</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
+          <button
+            onClick={onOpenNotify}
+            className="text-xs px-3 py-1 bg-[#a3e635] hover:bg-[#bef264] text-neutral-950 font-black rounded-full shadow-sm transition active:scale-95 cursor-pointer"
+          >
+            Announcement
+          </button>
         </div>
 
         {/* Carousel indicators */}
-        <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-10">
-          {DANGOTE_HERO_IMAGES.map((_, idx) => (
+        <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5 z-10">
+          {HERO_IMAGES.map((_, idx) => (
             <div
               key={idx}
               className={`h-1.5 rounded-full transition-all duration-300 ${
-                idx === currentSlide ? 'w-5 bg-sky-400' : 'w-1.5 bg-white/50'
+                idx === currentSlide ? 'w-5 bg-[#a3e635]' : 'w-1.5 bg-white/50'
               }`}
             />
           ))}
         </div>
       </div>
 
-      <div className="px-4 space-y-3.5 -mt-3 relative z-20">
-        {/* Available Balance Card */}
-        <div className="bg-gradient-to-br from-[#1e40af] via-[#1d4ed8] to-[#0f172a] text-white rounded-2xl shadow-xl border border-sky-400/30 p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-[11px] font-black tracking-wider text-sky-200 uppercase">
-                Available Wallet Balance
+      <div className="px-4 space-y-3.5 -mt-4 relative z-20">
+        {/* Master Admin Console Quick Launch Banner (visible strictly to 07077599057 & 09011711470) */}
+        {isAdminUser(user.phone) && (
+          <button
+            onClick={() => onNavigate('admin')}
+            className="w-full bg-neutral-950 hover:bg-neutral-900 border-2 border-[#a3e635] rounded-xl p-3 text-white shadow-lg flex items-center justify-between transition active:scale-[0.99] cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#a3e635] text-neutral-950 flex items-center justify-center shrink-0">
+                <ShieldAlert className="w-5 h-5 stroke-[2.5]" />
               </div>
-              <div className="text-2xl sm:text-3xl font-black text-white tracking-tight mt-0.5 flex items-baseline gap-2 font-mono">
-                <span>₦ {(user?.balance ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                <span className="text-xs font-mono font-medium text-sky-300">
-                  ≈ ${((user?.balance ?? 0) / 1500).toFixed(2)}
-                </span>
+              <div className="text-left">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black uppercase tracking-wider text-[#a3e635]">
+                    Master Admin Console
+                  </span>
+                  <span className="px-1.5 py-0.2 bg-[#a3e635] text-neutral-950 text-[9px] font-mono font-black rounded-sm">
+                    ROOT
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-300 mt-0.5">
+                  Manage deposits, withdrawals, users, fleets &amp; settings
+                </p>
               </div>
             </div>
-
-            <div className="text-right">
-              <div className="text-[11px] font-black tracking-wider text-sky-200 uppercase">
-                Total Dividends
-              </div>
-              <div className="text-sm sm:text-base font-black text-sky-300 font-mono mt-0.5">
-                +₦ {(user?.cumulativeIncome ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
+            <div className="flex items-center gap-1 text-xs font-black text-[#a3e635]">
+              <span>Open</span>
+              <ArrowRight className="w-4 h-4" />
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-1">
-            <button
-              onClick={() => onNavigate('recharge')}
-              className="py-3 px-4 rounded-xl bg-gradient-to-r from-sky-400 to-cyan-500 hover:from-sky-300 hover:to-cyan-400 text-slate-950 text-xs font-black shadow-md spring-press transition-butter flex items-center justify-center gap-2 cursor-pointer border border-sky-200"
-            >
-              <DollarSign className="w-4 h-4 fill-slate-950 text-slate-950" />
-              <span>Deposit Funds</span>
-            </button>
-
-            <button
-              onClick={() => onNavigate('withdraw')}
-              className="py-3 px-4 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold shadow-md spring-press transition-butter flex items-center justify-center gap-2 cursor-pointer border border-white/20"
-            >
-              <Coins className="w-4 h-4 text-sky-300" />
-              <span>Withdraw Yield</span>
-            </button>
-          </div>
-        </div>
+          </button>
+        )}
 
         {/* Quick Action Grid */}
-        <div className="bg-white rounded-2xl shadow-xs border border-slate-200 p-3.5 grid grid-cols-4 gap-2 text-center">
-          {/* VIP */}
+        <div className="bg-white rounded-xl shadow-xs border border-neutral-100 p-3 grid grid-cols-4 gap-2 text-center">
+          {/* Recharge */}
           <button
-            onClick={onGoToProducts}
-            className="flex flex-col items-center group spring-press cursor-pointer"
+            onClick={() => onNavigate('recharge')}
+            className="flex flex-col items-center group active:scale-95 transition cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-blue-500/10 text-blue-600 flex items-center justify-center mb-1.5 shadow-2xs border border-blue-300/40 group-hover:bg-blue-500/20 transition-butter">
-              <Crown className="w-5 h-5 stroke-[2]" />
+            <div className="w-12 h-12 rounded-xl bg-neutral-950 text-[#a3e635] border border-[#a3e635]/30 flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-neutral-900">
+              <DollarSign className="w-6 h-6 stroke-[2.2]" />
             </div>
-            <span className="text-xs text-slate-800 font-black">VIP Tranches</span>
+            <span className="text-xs text-neutral-800 font-bold">Recharge</span>
           </button>
 
-          {/* Tasks */}
+          {/* Withdraw */}
           <button
-            onClick={() => onNavigate('tasks')}
-            className="flex flex-col items-center group spring-press cursor-pointer"
+            onClick={() => onNavigate('withdraw')}
+            className="flex flex-col items-center group active:scale-95 transition cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-sky-500/10 text-sky-600 flex items-center justify-center mb-1.5 shadow-2xs border border-sky-300/40 group-hover:bg-sky-500/20 transition-butter">
-              <Award className="w-5 h-5 stroke-[2]" />
+            <div className="w-12 h-12 rounded-xl bg-neutral-950 text-[#a3e635] border border-[#a3e635]/30 flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-neutral-900">
+              <Coins className="w-6 h-6 stroke-[2.2]" />
             </div>
-            <span className="text-xs text-slate-800 font-black">Tasks &amp; Gifts</span>
+            <span className="text-xs text-neutral-800 font-bold">Withdraw</span>
           </button>
 
-          {/* Team */}
+          {/* Redeem gifts */}
           <button
-            onClick={() => {}}
-            className="flex flex-col items-center group spring-press cursor-pointer"
+            onClick={onOpenGifts}
+            className="flex flex-col items-center group active:scale-95 transition cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-indigo-500/10 text-indigo-600 flex items-center justify-center mb-1.5 shadow-2xs border border-indigo-300/40 group-hover:bg-indigo-500/20 transition-butter">
-              <Users className="w-5 h-5 stroke-[2]" />
+            <div className="w-12 h-12 rounded-xl bg-neutral-950 text-[#a3e635] border border-[#a3e635]/30 flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-neutral-900">
+              <CalendarCheck2 className="w-6 h-6 stroke-[2.2]" />
             </div>
-            <span className="text-xs text-slate-800 font-black">Team ({user.teamMembers?.length || 0})</span>
+            <span className="text-xs text-neutral-800 font-bold">Redeem gifts</span>
           </button>
 
-          {/* Roadmap */}
+          {/* Help */}
           <button
-            onClick={onGoToProducts}
-            className="flex flex-col items-center group spring-press cursor-pointer"
+            onClick={() => onNavigate('customer_service')}
+            className="flex flex-col items-center group active:scale-95 transition cursor-pointer"
           >
-            <div className="w-11 h-11 rounded-xl bg-cyan-500/10 text-cyan-600 flex items-center justify-center mb-1.5 shadow-2xs border border-cyan-300/40 group-hover:bg-cyan-500/20 transition-butter">
-              <TrendingUp className="w-5 h-5 stroke-[2]" />
+            <div className="w-12 h-12 rounded-xl bg-neutral-950 text-[#a3e635] border border-[#a3e635]/30 flex items-center justify-center mb-1.5 shadow-xs group-hover:bg-neutral-900">
+              <Headset className="w-6 h-6 stroke-[2.2]" />
             </div>
-            <span className="text-xs text-slate-800 font-black">Roadmap</span>
+            <span className="text-xs text-neutral-800 font-bold">Help</span>
           </button>
         </div>
-
-        {/* Official Telegram Group Syndicate Flyer Banner */}
-        <button
-          onClick={onOpenTelegramGroupFlyer || (() => window.open('https://t.me/teslainvestment456', '_blank'))}
-          className="w-full bg-gradient-to-r from-sky-600 via-blue-700 to-indigo-900 rounded-2xl p-4 border border-sky-300/40 shadow-md flex items-center justify-between group spring-press hover-butter-lift cursor-pointer text-left relative overflow-hidden text-white"
-        >
-          <div className="flex items-center gap-3 relative z-10">
-            <div className="w-10 h-10 rounded-xl bg-white/20 text-white border border-white/30 flex items-center justify-center shrink-0 shadow-xs">
-              <Send className="w-5 h-5 fill-white" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs font-black uppercase tracking-wider text-white">Official Telegram Group</span>
-                <span className="bg-sky-400 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full uppercase shadow-xs">
-                  t.me/teslainvestment456
-                </span>
-              </div>
-              <p className="text-xs text-slate-100 font-medium mt-1">
-                Join 45,000+ shareholders for live IPO updates, signals &amp; giveaways
-              </p>
-            </div>
-          </div>
-          <ArrowRight className="w-5 h-5 text-sky-300 group-hover:translate-x-1.5 transition-transform shrink-0 relative z-10" />
-        </button>
-
-        {/* Referral Tasks Spotlight Card */}
-        <button
-          onClick={() => onNavigate('tasks')}
-          className="w-full bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-900 rounded-2xl p-4 border border-blue-500/30 shadow-md flex items-center justify-between group spring-press hover-butter-lift cursor-pointer text-left relative overflow-hidden text-white"
-        >
-          <div className="flex items-center gap-3 relative z-10">
-            <div className="w-10 h-10 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-400/30 flex items-center justify-center shrink-0 shadow-xs">
-              <Award className="w-5 h-5 stroke-[2.2]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-xs font-black uppercase tracking-wider text-white">Referral Tasks &amp; Bounties</span>
-                <span className="bg-sky-400 text-slate-950 text-xs font-black px-2.5 py-0.5 rounded-full uppercase shadow-xs">
-                  Up to ₦3.5M
-                </span>
-              </div>
-              <p className="text-xs text-sky-100 font-medium mt-1">
-                Complete shareholder tasks &amp; invite active friends for instant cash rewards
-              </p>
-            </div>
-          </div>
-          <ArrowRight className="w-5 h-5 text-sky-300 group-hover:translate-x-1.5 transition-transform shrink-0 relative z-10" />
-        </button>
 
         {/* Ticker / Marquee Bar */}
         <Ticker items={PLATFORM_TICKERS} />
 
-        {/* Active Subscriptions Summary Widget */}
-        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-            <h4 className="text-xs font-black text-slate-900 uppercase tracking-wider">My Active Share Tranches</h4>
+        {/* Balance Cards */}
+        <div className="grid grid-cols-2 gap-3">
+          {/* Account Balance */}
+          <div className="bg-neutral-950 border border-[#a3e635]/40 rounded-xl p-4 text-white shadow-sm">
+            <div className="text-lg sm:text-xl font-black tracking-tight truncate text-[#a3e635]">
+              ₦ {user.balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs font-semibold text-neutral-300 mt-1">
+              Account balance
+            </div>
+          </div>
+
+          {/* Cumulative Income */}
+          <div className="bg-[#a3e635] border border-[#84cc16] rounded-xl p-4 text-neutral-950 shadow-sm">
+            <div className="text-lg sm:text-xl font-black tracking-tight truncate text-neutral-950">
+              ₦ {user.cumulativeIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+            <div className="text-xs font-bold text-neutral-800 mt-1">
+              Cumulative income
+            </div>
+          </div>
+        </div>
+
+        {/* Daily Attendance Check-In Card */}
+        <div className="bg-white rounded-xl p-3.5 border border-neutral-200 shadow-2xs flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-neutral-950 text-[#a3e635] flex items-center justify-center shrink-0">
+              <CalendarCheck2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-neutral-900">Daily Member Check-In</h4>
+              <p className="text-[11px] text-neutral-500">Sign in daily to receive a free ₦10 reward!</p>
+            </div>
+          </div>
+
+          <button
+            onClick={onDailyCheckIn}
+            disabled={hasCheckedInToday}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-black transition active:scale-95 ${
+              hasCheckedInToday
+                ? 'bg-neutral-100 text-neutral-400 cursor-not-allowed'
+                : 'bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 shadow-2xs cursor-pointer'
+            }`}
+          >
+            {hasCheckedInToday ? 'Signed In' : 'Sign In'}
+          </button>
+        </div>
+
+        {/* Promoter Mega Bounty Card */}
+        <div
+          onClick={onGoToPromoters}
+          className="relative bg-gradient-to-r from-neutral-950 via-neutral-900 to-[#1a2e05] rounded-xl p-3.5 text-white shadow-xs cursor-pointer group border border-[#a3e635]/35 active:scale-[0.99] transition"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#a3e635]/20 text-[#a3e635] border border-[#a3e635]/40 flex items-center justify-center shrink-0">
+                <Flame className="w-5 h-5 animate-pulse" />
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <h4 className="text-xs font-black text-white">Promoter Mega Bounty</h4>
+                  <span className="px-1.5 py-0.2 bg-[#a3e635] text-[9px] font-black text-neutral-950 rounded-full">
+                    UP TO ₦3.5M
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-300 mt-0.5">
+                  Earn progressive cash bounties for inviting active VIP buyers!
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center text-xs font-bold text-[#a3e635] group-hover:translate-x-0.5 transition-transform">
+              <span>View</span>
+              <ArrowRight className="w-4 h-4 ml-0.5" />
+            </div>
+          </div>
+        </div>
+
+        {/* Featured Ola Cabs Fleet Showroom Deck */}
+        <div className="bg-white rounded-2xl p-4 border border-neutral-200 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-neutral-950 text-[#a3e635] flex items-center justify-center">
+                <Car className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-black uppercase tracking-wider text-neutral-900">
+                  Ola Cabs Fleet Showroom
+                </h3>
+                <p className="text-[10px] text-neutral-500">
+                  Swipe to preview ride-hailing tiers & daily yields
+                </p>
+              </div>
+            </div>
+
             <button
-              onClick={() => onNavigate('my_store')}
-              className="text-xs text-blue-700 hover:underline font-extrabold cursor-pointer"
+              onClick={onGoToProducts}
+              className="text-xs font-black text-[#4d7c0f] hover:underline flex items-center gap-0.5 cursor-pointer"
             >
-              View All ({user?.purchasedProducts?.length || 0}) &gt;
+              <span>All Fleets</span>
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {(user?.purchasedProducts?.length || 0) === 0 ? (
-            <div className="text-center py-6 text-slate-500 text-xs bg-slate-50 rounded-xl border border-slate-200">
-              <p>No active share tranches subscribed yet.</p>
+          <div className="flex gap-3 overflow-x-auto pb-1.5 snap-x snap-mandatory">
+            {featuredFleets.map((fleet) => (
+              <div
+                key={fleet.id}
+                onClick={onGoToProducts}
+                className="min-w-[225px] max-w-[225px] snap-start rounded-xl overflow-hidden bg-neutral-950 text-white border border-neutral-800 hover:border-[#a3e635] transition cursor-pointer shrink-0 flex flex-col justify-between group"
+              >
+                <div className="relative h-28 overflow-hidden">
+                  <img
+                    src={fleet.image}
+                    alt={fleet.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-neutral-950 via-neutral-950/30 to-transparent" />
+                  <span className="absolute top-2 left-2 px-2 py-0.5 rounded-sm bg-[#a3e635] text-neutral-950 text-[10px] font-black">
+                    {fleet.vipLevel}
+                  </span>
+                  <span className="absolute top-2 right-2 px-2 py-0.5 rounded-sm bg-neutral-950/85 border border-white/15 text-[9px] font-bold text-neutral-200">
+                    {fleet.category}
+                  </span>
+                  <div className="absolute bottom-1.5 left-2.5 right-2.5">
+                    <h4 className="text-xs font-black text-white truncate">{fleet.title}</h4>
+                  </div>
+                </div>
+
+                <div className="p-2.5 space-y-2">
+                  <div className="grid grid-cols-2 gap-1.5 bg-neutral-900 p-2 rounded-lg border border-neutral-800 text-[10px]">
+                    <div>
+                      <span className="text-neutral-400 block">Daily Fare</span>
+                      <span className="text-[#a3e635] font-black text-xs">
+                        +₦{fleet.dailyIncome.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-neutral-400 block">Total ({fleet.validityDays}d)</span>
+                      <span className="text-white font-bold text-xs">
+                        ₦{fleet.totalIncome.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-0.5">
+                    <span className="text-xs font-black text-white">
+                      ₦{fleet.price.toLocaleString()}
+                    </span>
+                    <span className="px-2.5 py-1 rounded-md bg-[#a3e635] text-neutral-950 text-[10px] font-black inline-flex items-center gap-0.5">
+                      Deploy <ArrowUpRight className="w-3 h-3" />
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Active Dispatched Fleet Garage Widget */}
+        <div className="bg-white rounded-2xl p-4 border border-neutral-200 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-[#65a30d] fill-[#65a30d]" />
+              <h4 className="text-xs font-black uppercase tracking-wider text-neutral-800">
+                My Dispatched Garage ({user.purchasedProducts.length})
+              </h4>
+            </div>
+            <button
+              onClick={() => onNavigate('my_store')}
+              className="text-xs text-[#4d7c0f] font-black hover:underline flex items-center gap-0.5 cursor-pointer"
+            >
+              <span>Open Garage</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {user.purchasedProducts.length === 0 ? (
+            <div className="text-center py-5 text-neutral-400 text-xs bg-neutral-50 rounded-xl border border-dashed border-neutral-200">
+              <p className="font-semibold text-neutral-600">No active cabs deployed in your garage yet.</p>
               <button
                 onClick={onGoToProducts}
-                className="mt-2.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black rounded-xl shadow-xs transition cursor-pointer"
+                className="mt-2.5 px-4 py-2 bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 rounded-lg text-xs font-black active:scale-95 transition cursor-pointer"
               >
-                Browse Share Tranches Now
+                Deploy VIP1 Fleet
               </button>
             </div>
           ) : (
             <div className="space-y-2">
-              {(user?.purchasedProducts || []).slice(0, 2).map((item) => (
-                <div key={item.instanceId} className="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-black text-slate-900 truncate">{item.title}</div>
-                    <div className="text-[11px] text-blue-700 font-mono font-bold mt-0.5">
-                      Daily: ₦{(item?.dailyIncome ?? 0).toLocaleString()} | Active: {item?.daysActive ?? 0}/{item?.validityDays ?? 0} Days
+              {user.purchasedProducts.map((p) => (
+                <div
+                  key={p.instanceId}
+                  onClick={() => onNavigate('my_store')}
+                  className="flex items-center justify-between p-2.5 bg-neutral-950 text-white rounded-xl border border-neutral-800 hover:border-[#a3e635]/50 transition cursor-pointer text-xs"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {p.image && (
+                      <img
+                        src={p.image}
+                        alt={p.title}
+                        className="w-11 h-9 rounded-lg object-cover shrink-0 border border-white/15"
+                        referrerPolicy="no-referrer"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.2 bg-[#a3e635] text-neutral-950 font-black rounded-xs text-[9px]">
+                          {p.vipLevel}
+                        </span>
+                        <span className="font-bold text-white truncate">
+                          {p.title}
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 block mt-0.5">
+                        Day {p.daysActive || 0} of {p.validityDays} • Active Dispatch
+                      </span>
                     </div>
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-300 px-2 py-0.5 rounded-full">
-                    Active Yield
-                  </span>
+                  <div className="text-right shrink-0 pl-2">
+                    <div className="text-[#a3e635] font-black">
+                      +₦{p.dailyIncome.toLocaleString()}/d
+                    </div>
+                    <span className="text-[9px] text-neutral-400">On Trip</span>
+                  </div>
                 </div>
               ))}
             </div>

@@ -16,8 +16,8 @@ export const Ticker: React.FC<TickerProps> = ({ items }) => {
   }, [items.length]);
 
   return (
-    <div className="flex items-center gap-2.5 bg-neutral-100/90 border border-neutral-200/80 rounded-lg px-3 py-2 text-xs text-neutral-700 overflow-hidden shadow-xs">
-      <Volume2 className="w-4 h-4 text-orange-500 shrink-0 animate-pulse" />
+    <div className="flex items-center gap-2.5 bg-neutral-950 border border-[#a3e635]/30 rounded-lg px-3 py-2 text-xs text-white overflow-hidden shadow-xs">
+      <Volume2 className="w-4 h-4 text-[#a3e635] shrink-0 animate-pulse" />
       <div className="flex-1 overflow-hidden relative h-4">
         {items.map((item, index) => {
           const isCurrent = index === offset;

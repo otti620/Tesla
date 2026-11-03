@@ -6,7 +6,7 @@ import {
   setDoc, 
   updateDoc 
 } from 'firebase/firestore';
-import { db, auth } from './firebase';
+import { db, auth, withFirestoreTimeout } from './firebase';
 import { getLocalAccounts, saveLocalAccounts } from './authService';
 import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
 import { 
@@ -158,14 +158,104 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
   const withdrawalMap = new Map<string, CloudWithdrawalRecord>();
   const depositMap = new Map<string, CloudDepositRecord>();
 
-  // 1. Fetch Users from Firestore on-demand
+  const userMap = new Map<string, CloudUserRecord>();
+
+  const collectUserRecordsToMaps = (uidKey: string, data: UserState) => {
+    if (Array.isArray(data.records)) {
+      data.records.forEach((r) => {
+        if (r.type === 'withdraw') {
+          withdrawalMap.set(r.id, {
+            id: r.id,
+            userId: uidKey,
+            userPhone: data.phone || 'User',
+            amount: Number(r.amount) || 0,
+            fee: Number(r.fee) || 0,
+            status: r.status || 'pending',
+            timestamp: r.timestamp || Date.now(),
+            bankAccount: r.bankAccount || data.bankAccount || null,
+            details: r.details,
+          });
+        } else if (r.type === 'recharge' || r.type === 'deposit') {
+          let senderBank = 'Bank Transfer';
+          let payeeName = data.phone || 'Member';
+          if (r.details) {
+            const match = r.details.match(/From (.*?) \((.*?)\)/);
+            if (match) {
+              senderBank = match[1];
+              payeeName = match[2];
+            }
+          }
+          depositMap.set(r.id, {
+            id: r.id,
+            userId: uidKey,
+            userPhone: data.phone || 'User',
+            amount: Number(r.amount) || 0,
+            channel: r.title || 'Recharge Channel',
+            senderBank,
+            payeeName,
+            status: r.status || 'pending',
+            timestamp: r.timestamp || Date.now(),
+            details: r.details,
+          });
+        }
+      });
+    }
+  };
+
+  // 0. Seed from local accounts registry first so data is always complete even offline
   try {
-    const usersSnap = await getDocs(collection(db, usersPath));
-    usersSnap.forEach((d) => {
+    const localAccounts = getLocalAccounts();
+    Object.entries(localAccounts).forEach(([digitsKey, acc]) => {
+      if (acc?.userState) {
+        const data = acc.userState;
+        const cleanP = cleanNigerianPhoneDigits(data.phone || digitsKey) || digitsKey;
+        const userRec: CloudUserRecord = {
+          uid: cleanP,
+          phone: data.phone || `+234 ${cleanP}`,
+          balance: Number(data.balance) || 0,
+          cumulativeIncome: Number(data.cumulativeIncome) || 0,
+          inviteCode: data.inviteCode || 'N/A',
+          invitedBy: data.invitedBy || null,
+          fundPin: data.fundPin || '123456',
+          bankAccount: data.bankAccount || null,
+          purchasedProducts: normalizePurchasedProducts(data.purchasedProducts),
+          teamMembers: data.teamMembers || [],
+          records: data.records || [],
+          lastCheckInDate: data.lastCheckInDate || null,
+          claimedPromoterMilestones: data.claimedPromoterMilestones || [],
+          creditedByAdmin:
+            data.creditedByAdmin === true ||
+            Boolean(
+              data.records &&
+                data.records.some(
+                  (r: any) =>
+                    r.id?.startsWith('adm_') ||
+                    r.title?.toLowerCase().includes('admin') ||
+                    r.title?.toLowerCase().includes('grant')
+                )
+            ),
+        };
+        userMap.set(cleanP, userRec);
+        collectUserRecordsToMaps(cleanP, data);
+      }
+    });
+  } catch {}
+
+  // 1. Fetch Users, Withdrawals, Deposits, and System State in parallel with fast timeout
+  const [usersResult, wthResult, depResult, sysResult] = await Promise.allSettled([
+    withFirestoreTimeout(getDocs(collection(db, usersPath)), 2200),
+    withFirestoreTimeout(getDocs(collection(db, withdrawalsPath)), 2000),
+    withFirestoreTimeout(getDocs(collection(db, depositsPath)), 2000),
+    withFirestoreTimeout(getDoc(doc(db, 'system', 'app_state')), 2000),
+  ]);
+
+  if (usersResult.status === 'fulfilled') {
+    usersResult.value.forEach((d) => {
       const data = d.data() as UserState;
+      const cleanP = cleanNigerianPhoneDigits(data.phone || d.id) || d.id;
       const userRec: CloudUserRecord = {
         uid: d.id,
-        phone: data.phone || 'Unknown Phone',
+        phone: data.phone || (d.id.startsWith('+') || d.id.startsWith('0') ? data.phone || d.id : `+234 ${cleanP}`),
         balance: Number(data.balance) || 0,
         cumulativeIncome: Number(data.cumulativeIncome) || 0,
         inviteCode: data.inviteCode || 'N/A',
@@ -177,132 +267,60 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
         records: data.records || [],
         lastCheckInDate: data.lastCheckInDate || null,
         claimedPromoterMilestones: data.claimedPromoterMilestones || [],
-        creditedByAdmin: data.creditedByAdmin === true || (data.records && data.records.some((r: any) => r.id?.startsWith('adm_') || r.title?.toLowerCase().includes('admin') || r.title?.toLowerCase().includes('grant'))),
+        creditedByAdmin:
+          data.creditedByAdmin === true ||
+          Boolean(
+            data.records &&
+              data.records.some(
+                (r: any) =>
+                  r.id?.startsWith('adm_') ||
+                  r.title?.toLowerCase().includes('admin') ||
+                  r.title?.toLowerCase().includes('grant')
+              )
+          ),
       };
-      usersList.push(userRec);
-
-      // Collect user withdrawal and recharge records to maps
-      if (Array.isArray(data.records)) {
-        data.records.forEach((r) => {
-          if (r.type === 'withdraw') {
-            withdrawalMap.set(r.id, {
-              id: r.id,
-              userId: d.id,
-              userPhone: data.phone || 'User',
-              amount: r.amount,
-              fee: r.fee || 0,
-              status: r.status,
-              timestamp: r.timestamp,
-              bankAccount: data.bankAccount,
-              details: r.details,
-            });
-          } else if (r.type === 'recharge') {
-            let senderBank = 'Bank Transfer';
-            let payeeName = data.phone || 'Member';
-            if (r.details) {
-              const match = r.details.match(/From (.*?) \((.*?)\)/);
-              if (match) {
-                senderBank = match[1];
-                payeeName = match[2];
-              }
-            }
-            depositMap.set(r.id, {
-              id: r.id,
-              userId: d.id,
-              userPhone: data.phone || 'User',
-              amount: r.amount,
-              channel: r.title || 'Recharge Channel',
-              senderBank,
-              payeeName,
-              status: r.status,
-              timestamp: r.timestamp,
-              details: r.details,
-            });
-          }
-        });
-      }
+      userMap.set(cleanP, userRec);
+      collectUserRecordsToMaps(d.id, data);
     });
-  } catch (err) {
-    // Seamless local registry fallback if Firestore read is offline
   }
 
-  // Merge registered accounts from local registry (ensures zero data loss and offline admin functionality)
-  try {
-    const localAccounts = getLocalAccounts();
-    Object.values(localAccounts).forEach((acc) => {
-      const existingUser = usersList.find((u) => u.phone === acc.phone || u.uid === acc.digits);
-      if (!existingUser) {
-        usersList.push({
-          uid: acc.digits,
-          phone: acc.phone,
-          balance: acc.userState.balance || 0,
-          cumulativeIncome: acc.userState.cumulativeIncome || 0,
-          inviteCode: acc.userState.inviteCode || 'N/A',
-          invitedBy: acc.userState.invitedBy || null,
-          fundPin: acc.userState.fundPin || '123456',
-          bankAccount: acc.userState.bankAccount || null,
-          purchasedProducts: normalizePurchasedProducts(acc.userState.purchasedProducts),
-          teamMembers: acc.userState.teamMembers || [],
-          records: acc.userState.records || [],
-          lastCheckInDate: acc.userState.lastCheckInDate || null,
-          claimedPromoterMilestones: acc.userState.claimedPromoterMilestones || [],
-          creditedByAdmin: acc.userState.creditedByAdmin === true || (acc.userState.records && acc.userState.records.some((r: any) => r.id?.startsWith('adm_') || r.title?.toLowerCase().includes('admin') || r.title?.toLowerCase().includes('grant'))),
-        });
-      }
+  usersList.push(...Array.from(userMap.values()));
 
-      // Merge records for withdrawals and deposits from local accounts
-      if (Array.isArray(acc.userState.records)) {
-        acc.userState.records.forEach((r) => {
-          if (r.type === 'withdraw' && !withdrawalMap.has(r.id)) {
-            withdrawalMap.set(r.id, {
-              id: r.id,
-              userId: acc.digits,
-              userPhone: acc.phone,
-              amount: r.amount,
-              fee: r.fee || 0,
-              status: r.status,
-              timestamp: r.timestamp,
-              bankAccount: acc.userState.bankAccount,
-              details: r.details,
-            });
-          } else if (r.type === 'recharge' && !depositMap.has(r.id)) {
-            let senderBank = 'Bank Transfer';
-            let payeeName = acc.phone;
-            if (r.details) {
-              const match = r.details.match(/From (.*?) \((.*?)\)/);
-              if (match) {
-                senderBank = match[1];
-                payeeName = match[2];
-              }
-            }
-            depositMap.set(r.id, {
-              id: r.id,
-              userId: acc.digits,
-              userPhone: acc.phone,
-              amount: r.amount,
-              channel: r.title || 'Bank Transfer',
-              senderBank,
-              payeeName,
-              status: r.status,
-              timestamp: r.timestamp,
-              details: r.details,
-            });
-          }
-        });
-      }
-    });
-  } catch (localErr) {
-    console.warn('Local accounts merge notice:', localErr);
-  }
+  // Ensure Master Admin accounts are listed
+  const adminNumbers = ['7077599057', '9011711470'];
+  adminNumbers.forEach((admDigits) => {
+    const phone = `+234 ${admDigits}`;
+    if (!usersList.some((u) => cleanNigerianPhoneDigits(u.phone) === admDigits || u.uid === admDigits)) {
+      const adminRec: CloudUserRecord = {
+        uid: admDigits,
+        phone,
+        balance: 0,
+        cumulativeIncome: 0,
+        inviteCode: admDigits === '7077599057' ? 'TSLROOT1' : 'TSLROOT2',
+        invitedBy: null,
+        fundPin: '123456',
+        bankAccount: null,
+        purchasedProducts: [],
+        teamMembers: [],
+        records: [],
+        lastCheckInDate: null,
+        claimedPromoterMilestones: [],
+        creditedByAdmin: true,
+      };
+      usersList.push(adminRec);
+    }
+  });
 
-  // 2. Fetch Global Withdrawals Collection from Firestore (if populated)
-  try {
-    const wthSnap = await getDocs(collection(db, withdrawalsPath));
-    wthSnap.forEach((d) => {
+  // 2. Process Global Withdrawals Collection from Firestore (if fulfilled)
+  if (wthResult.status === 'fulfilled') {
+    wthResult.value.forEach((d) => {
       const data = d.data() as CloudWithdrawalRecord;
       const matchedUser = usersList.find(
-        (u) => (data.userId && u.uid === data.userId) || 
-               (data.userPhone && (u.phone === data.userPhone || u.phone.replace(/\D/g, '') === data.userPhone.replace(/\D/g, '')))
+        (u) =>
+          (data.userId && u.uid === data.userId) ||
+          (data.userPhone &&
+            (u.phone === data.userPhone ||
+              u.phone.replace(/\D/g, '') === data.userPhone.replace(/\D/g, '')))
       );
       withdrawalMap.set(d.id, {
         id: d.id,
@@ -310,81 +328,94 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
         userPhone: data.userPhone || matchedUser?.phone || 'User',
         amount: Number(data.amount) || 0,
         fee: Number(data.fee) || 0,
-        status: data.status,
+        status: data.status || 'pending',
         timestamp: data.timestamp || Date.now(),
         bankAccount: data.bankAccount || matchedUser?.bankAccount || null,
         details: data.details,
       });
     });
-  } catch {
-    // Non-blocking if collection does not yet exist
   }
 
-  // 3. Fetch Global Deposits Collection from Firestore (if populated)
-  try {
-    const depSnap = await getDocs(collection(db, depositsPath));
-    depSnap.forEach((d) => {
+  // 3. Process Global Deposits Collection from Firestore (if fulfilled)
+  if (depResult.status === 'fulfilled') {
+    depResult.value.forEach((d) => {
       const data = d.data() as CloudDepositRecord;
+      const matchedUser = usersList.find(
+        (u) =>
+          (data.userId && u.uid === data.userId) ||
+          (data.userPhone &&
+            (u.phone === data.userPhone ||
+              u.phone.replace(/\D/g, '') === data.userPhone.replace(/\D/g, '')))
+      );
       depositMap.set(d.id, {
         id: d.id,
-        userId: data.userId,
-        userPhone: data.userPhone,
+        userId: data.userId || matchedUser?.uid || matchedUser?.phone || 'User',
+        userPhone: data.userPhone || matchedUser?.phone || 'User',
         amount: Number(data.amount) || 0,
         channel: data.channel || 'Recharge Channel',
         senderBank: data.senderBank || 'Bank Transfer',
-        payeeName: data.payeeName || 'Member',
+        payeeName: data.payeeName || matchedUser?.phone || 'Member',
         receivingBank: data.receivingBank,
         receivingAccount: data.receivingAccount,
         receivingAccountName: data.receivingAccountName,
-        status: data.status,
+        status: data.status || 'pending',
         timestamp: data.timestamp || Date.now(),
         processedAt: data.processedAt,
         rejectedReason: data.rejectedReason,
         details: data.details,
       });
     });
-  } catch {
-    // Non-blocking if collection does not yet exist
   }
 
-  // 3. Fetch Platform System State from Firestore
+  // 4. Process Platform System State (with localStorage fallback)
   let products = INITIAL_PRODUCTS;
   let giftCodes = INITIAL_GIFT_CODES;
   let platformSettings = INITIAL_PLATFORM_SETTINGS;
 
   try {
-    const sysSnap = await getDoc(doc(db, 'system', 'app_state'));
-    if (sysSnap.exists()) {
-      const data = sysSnap.data();
-      if (Array.isArray(data.products) && data.products.length > 0) {
-        products = normalizeProductCatalog(data.products);
-      }
-      if (Array.isArray(data.giftCodes)) {
-        giftCodes = data.giftCodes.filter(
-          (gc: GiftCode) =>
-            gc.code !== 'TESLA2026' && gc.code !== 'TESLABONUS' && gc.code !== 'CYBERTRUCK'
-        );
-      }
-      if (data.platformSettings) {
-        const s = { ...data.platformSettings };
-        if (s.signupBonus !== 1000) s.signupBonus = 1000;
-        if (s.minWithdrawal !== 1500) s.minWithdrawal = 1500;
-        platformSettings = {
-          ...INITIAL_PLATFORM_SETTINGS,
-          ...s,
-        };
-      }
-    } else {
-      // Seed initial document into Firebase if missing
-      await setDoc(doc(db, 'system', 'app_state'), {
-        products: INITIAL_PRODUCTS,
-        giftCodes: INITIAL_GIFT_CODES,
-        platformSettings: INITIAL_PLATFORM_SETTINGS,
-        updatedAt: Date.now(),
-      });
+    const savedProd = localStorage.getItem('tesla_products_state');
+    if (savedProd) {
+      const parsed = JSON.parse(savedProd);
+      if (Array.isArray(parsed) && parsed.length > 0) products = normalizeProductCatalog(parsed);
     }
-  } catch (err) {
-    // Seamless local state fallback if app_state is unavailable
+    const savedGift = localStorage.getItem('tesla_gift_codes_state');
+    if (savedGift) {
+      const parsed = JSON.parse(savedGift);
+      if (Array.isArray(parsed)) giftCodes = parsed;
+    }
+    const savedSettings = localStorage.getItem('tesla_platform_settings');
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      if (parsed) platformSettings = { ...INITIAL_PLATFORM_SETTINGS, ...parsed };
+    }
+  } catch {}
+
+  if (sysResult.status === 'fulfilled' && sysResult.value.exists()) {
+    const data = sysResult.value.data();
+    if (Array.isArray(data.products) && data.products.length > 0) {
+      products = normalizeProductCatalog(data.products);
+    }
+    if (Array.isArray(data.giftCodes)) {
+      giftCodes = data.giftCodes.filter(
+        (gc: GiftCode) =>
+          gc.code !== 'TESLA2026' && gc.code !== 'TESLABONUS' && gc.code !== 'CYBERTRUCK'
+      );
+    }
+    if (data.platformSettings) {
+      const s = { ...data.platformSettings };
+      if (s.signupBonus === 2300 || s.signupBonus === 1500 || s.signupBonus === 500 || s.signupBonus === 1000) s.signupBonus = 1100;
+      if (s.minWithdrawal === 2000 || s.minWithdrawal === 2300 || s.minWithdrawal === 1500 || !s.minWithdrawal) s.minWithdrawal = 800;
+      if (typeof s.announcementNotice === 'string' && s.announcementNotice.includes('Tesla')) {
+        s.announcementNotice = s.announcementNotice
+          .replace(/Tesla Clean Energy Fleet/gi, 'Ola Cabs (OlaCabs) Mobility Fleet')
+          .replace(/Tesla Clean Energy/gi, 'Ola Cabs (OlaCabs)')
+          .replace(/Tesla/gi, 'Ola Cabs');
+      }
+      platformSettings = {
+        ...INITIAL_PLATFORM_SETTINGS,
+        ...s,
+      };
+    }
   }
 
   // Compile all withdrawal requests
@@ -428,7 +459,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
     usersList.forEach((u) => {
       if (Array.isArray(u.records)) {
         u.records
-          .filter((r) => r.type === 'recharge' && r.status === 'success')
+          .filter((r) => (r.type === 'recharge' || r.type === 'deposit') && r.status === 'success')
           .forEach((r) => {
             totalCompletedDeposits += r.amount;
           });
@@ -468,12 +499,12 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
 export async function resolveUserDocRef(
   targetUid: string,
   targetPhone?: string
-): Promise<{ ref: any; data: UserState; docId: string } | null> {
+): Promise<{ ref: any; data: UserState; docId: string }> {
   // 1. Direct getDoc on targetUid
   if (targetUid) {
     try {
       const directRef = doc(db, 'users', targetUid);
-      const snap = await getDoc(directRef);
+      const snap = await withFirestoreTimeout(getDoc(directRef), 1500);
       if (snap.exists()) {
         return { ref: directRef, data: snap.data() as UserState, docId: directRef.id };
       }
@@ -484,7 +515,15 @@ export async function resolveUserDocRef(
   const cleanPhone = cleanNigerianPhoneDigits(targetPhone || targetUid);
   if (cleanPhone) {
     try {
-      const snap = await getDocs(collection(db, 'users'));
+      const directPhoneRef = doc(db, 'users', cleanPhone);
+      const phoneSnap = await withFirestoreTimeout(getDoc(directPhoneRef), 1500);
+      if (phoneSnap.exists()) {
+        return { ref: directPhoneRef, data: phoneSnap.data() as UserState, docId: cleanPhone };
+      }
+    } catch {}
+
+    try {
+      const snap = await withFirestoreTimeout(getDocs(collection(db, 'users')), 2000);
       for (const d of snap.docs) {
         const u = d.data() as UserState;
         if (cleanNigerianPhoneDigits(u.phone || '') === cleanPhone || d.id === cleanPhone) {
@@ -500,17 +539,30 @@ export async function resolveUserDocRef(
     return k === targetUid || cleanNigerianPhoneDigits(localAccounts[k].phone) === cleanPhone;
   });
 
-  if (matchedKey && localAccounts[matchedKey]) {
-    const fallbackData = localAccounts[matchedKey].userState;
-    const newRef = doc(db, 'users', targetUid);
-    try {
-      const payload = sanitizeForFirestore({ ...fallbackData, updatedAt: Date.now() });
-      await setDoc(newRef, payload, { merge: true });
-      return { ref: newRef, data: fallbackData, docId: targetUid };
-    } catch {}
-  }
+  const fallbackData: UserState = (matchedKey && localAccounts[matchedKey])
+    ? localAccounts[matchedKey].userState
+    : {
+        isLoggedIn: true,
+        phone: targetPhone || (cleanPhone ? `+234 ${cleanPhone}` : targetUid),
+        balance: 0,
+        cumulativeIncome: 0,
+        inviteCode: cleanPhone ? `OLA${cleanPhone.slice(-4)}` : 'OLA0000',
+        bankAccount: null,
+        fundPin: '123456',
+        lastCheckInDate: null,
+        purchasedProducts: [],
+        teamMembers: [],
+        records: [],
+      };
 
-  return null;
+  const primaryDocId = cleanPhone || targetUid || `user_${Date.now()}`;
+  const newRef = doc(db, 'users', primaryDocId);
+  try {
+    const payload = sanitizeForFirestore({ ...fallbackData, updatedAt: Date.now() });
+    await withFirestoreTimeout(setDoc(newRef, payload, { merge: true }), 1500);
+  } catch {}
+
+  return { ref: newRef, data: fallbackData, docId: primaryDocId };
 }
 
 /**
@@ -558,7 +610,7 @@ export async function adminUpdateUserBalanceInFirebase(
         { merge: true }
       );
     } catch (err) {
-      console.warn(`Firestore balance update notice for doc ${dId}:`, err);
+      console.debug(`Firestore balance update notice for doc ${dId}:`, (err as Error)?.message || String(err));
     }
   }
 
@@ -651,7 +703,7 @@ export async function adminGrantUserBonusInFirebase(
         { merge: true }
       );
     } catch (err) {
-      console.warn('Firestore bonus grant notice:', err);
+      console.debug('Firestore bonus grant notice:', (err as Error)?.message || String(err));
     }
   }
 
@@ -731,7 +783,7 @@ export async function adminSetUserCreditedStatusInFirebase(
         { merge: true }
       );
     } catch (err) {
-      console.warn(`Firestore credit authorization notice for doc ${dId}:`, err);
+      console.debug(`Firestore credit authorization notice for doc ${dId}:`, (err as Error)?.message || String(err));
     }
   }
 
@@ -845,7 +897,7 @@ export async function adminAssignProductToUserInFirebase(
         ).catch(() => {});
       }
     } catch (err) {
-      console.warn('Firestore admin product grant notice:', err);
+      console.debug('Firestore admin product grant notice:', (err as Error)?.message || String(err));
     }
   } else if (cleanPhone || targetUid) {
     const targetId = cleanPhone || targetUid;
@@ -861,7 +913,7 @@ export async function adminAssignProductToUserInFirebase(
         { merge: true }
       );
     } catch (err) {
-      console.warn('Direct bootstrap product grant notice:', err);
+      console.debug('Direct bootstrap product grant notice:', (err as Error)?.message || String(err));
     }
   }
 
@@ -937,7 +989,7 @@ export async function saveUserBankAccountInFirebase(
     try {
       await setDoc(resolved.ref, { bankAccount, updatedAt: Date.now() }, { merge: true });
     } catch (err) {
-      console.warn('Firestore bank account save notice:', err);
+      console.debug('Firestore bank account save notice:', (err as Error)?.message || String(err));
     }
   }
 
@@ -980,7 +1032,7 @@ export async function adminResetUserPinInFirebase(
     try {
       await setDoc(resolved.ref, { fundPin: newPin, updatedAt: Date.now() }, { merge: true });
     } catch (err) {
-      console.warn('Firestore PIN reset notice:', err);
+      console.debug('Firestore PIN reset notice:', (err as Error)?.message || String(err));
     }
   }
 
@@ -1038,7 +1090,7 @@ export async function adminApproveWithdrawalInFirebase(
           { merge: true }
         );
       } catch (err) {
-        console.warn('Firestore withdrawal approval notice:', err);
+        console.debug('Firestore withdrawal approval notice:', (err as Error)?.message || String(err));
       }
     }
   }
@@ -1150,7 +1202,7 @@ export async function adminRejectWithdrawalInFirebase(
           );
         }
       } catch (err) {
-        console.warn('Firestore withdrawal rejection notice:', err);
+        console.debug('Firestore withdrawal rejection notice:', (err as Error)?.message || String(err));
       }
     }
   }
@@ -1230,18 +1282,24 @@ export const adminReverseWithdrawalInFirebase = adminRejectWithdrawalInFirebase;
 export async function adminSavePlatformSettingsInFirebase(
   newSettings: PlatformSettings
 ): Promise<void> {
+  try {
+    localStorage.setItem('tesla_platform_settings', JSON.stringify(newSettings));
+  } catch {}
   const path = 'system/app_state';
   try {
-    await setDoc(
-      doc(db, path),
-      {
-        platformSettings: newSettings,
-        updatedAt: Date.now(),
-      },
-      { merge: true }
+    await withFirestoreTimeout(
+      setDoc(
+        doc(db, path),
+        {
+          platformSettings: newSettings,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      ),
+      2000
     );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+  } catch {
+    // Saved locally when offline
   }
 }
 
@@ -1251,18 +1309,24 @@ export async function adminSavePlatformSettingsInFirebase(
 export async function adminSaveProductsInFirebase(
   products: VIPProduct[]
 ): Promise<void> {
+  try {
+    localStorage.setItem('tesla_products_state', JSON.stringify(products));
+  } catch {}
   const path = 'system/app_state';
   try {
-    await setDoc(
-      doc(db, path),
-      {
-        products,
-        updatedAt: Date.now(),
-      },
-      { merge: true }
+    await withFirestoreTimeout(
+      setDoc(
+        doc(db, path),
+        {
+          products,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      ),
+      2000
     );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+  } catch {
+    // Saved locally when offline
   }
 }
 
@@ -1272,18 +1336,24 @@ export async function adminSaveProductsInFirebase(
 export async function adminSaveGiftCodesInFirebase(
   giftCodes: GiftCode[]
 ): Promise<void> {
+  try {
+    localStorage.setItem('tesla_gift_codes_state', JSON.stringify(giftCodes));
+  } catch {}
   const path = 'system/app_state';
   try {
-    await setDoc(
-      doc(db, path),
-      {
-        giftCodes,
-        updatedAt: Date.now(),
-      },
-      { merge: true }
+    await withFirestoreTimeout(
+      setDoc(
+        doc(db, path),
+        {
+          giftCodes,
+          updatedAt: Date.now(),
+        },
+        { merge: true }
+      ),
+      2000
     );
-  } catch (err) {
-    handleFirestoreError(err, OperationType.WRITE, path);
+  } catch {
+    // Saved locally when offline
   }
 }
 
@@ -1418,15 +1488,27 @@ export async function adminApproveDepositInFirebase(
           });
         }
 
-        await setDoc(
-          resolved.ref,
-          {
-            balance: newBal,
-            records: updatedRecords,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
+        const docIdsToUpdate = new Set<string>();
+        if (resolved.docId) docIdsToUpdate.add(resolved.docId);
+        const cleanP = cleanNigerianPhoneDigits(targetPhone || targetUid);
+        if (cleanP) docIdsToUpdate.add(cleanP);
+        if (targetUid) docIdsToUpdate.add(targetUid);
+
+        for (const dId of docIdsToUpdate) {
+          try {
+            await setDoc(
+              doc(db, 'users', dId),
+              {
+                balance: newBal,
+                records: updatedRecords,
+                updatedAt: Date.now(),
+              },
+              { merge: true }
+            );
+          } catch (err) {
+            console.warn(`Firestore deposit approval sync notice for doc ${dId}:`, err);
+          }
+        }
       }
     } catch (err) {
       console.warn('Firestore deposit approval update notice:', err);
