@@ -21,8 +21,9 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { UserState, PlatformSettings } from '../types';
-import { PROMOTER_MILESTONES, SAMPLE_PROMOTER_LEADERBOARD, PromoterMilestone } from '../data/promoterTiers';
+import { PROMOTER_MILESTONES, PromoterMilestone } from '../data/promoterTiers';
 import { getDynamicReferralLink, shareReferralLink, getReferralShareMessage } from '../utils/referral';
+import { TopPromotersLeaderboard } from './TopPromotersLeaderboard';
 
 interface PromotersScreenProps {
   user: UserState;
@@ -141,14 +142,14 @@ Start earning daily automated income today! 🚀`;
           <div className="flex items-center justify-between">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#a3e635]/20 border border-[#a3e635]/40 text-[#a3e635] text-xs font-black tracking-wide uppercase">
               <Flame className="w-3.5 h-3.5 text-[#a3e635] animate-pulse" />
-              Promoter Mega Bounty Program
+              Promoters Rewards Program
             </div>
             <button
               onClick={() => setShowRulesModal(true)}
               className="text-xs text-neutral-400 hover:text-white flex items-center gap-1 underline underline-offset-2 transition-colors"
             >
               <HelpCircle className="w-3.5 h-3.5" />
-              Bounty Terms
+              Program Terms
             </button>
           </div>
 
@@ -170,7 +171,7 @@ Start earning daily automated income today! 🚀`;
             </div>
 
             <div className="bg-white/10 backdrop-blur-md rounded-xl p-2.5 border border-white/10 text-center">
-              <div className="text-[10px] text-neutral-300 font-medium uppercase tracking-wider">Bounties Claimed</div>
+              <div className="text-[10px] text-neutral-300 font-medium uppercase tracking-wider">Rewards Claimed</div>
               <div className="text-lg font-black text-[#a3e635] mt-0.5">₦{totalMilestonesClaimedAmount.toLocaleString()}</div>
               <div className="text-[9px] text-neutral-400">{claimedMilestoneIds.size} Tier(s) Claimed</div>
             </div>
@@ -396,63 +397,22 @@ Start earning daily automated income today! 🚀`;
                 );
               })}
             </div>
+
+            {/* Compact Top Promoters Leaderboard Section */}
+            <div className="pt-2">
+              <TopPromotersLeaderboard
+                user={user}
+                compact
+                maxItems={5}
+                onViewAll={() => setActiveTab('leaderboard')}
+              />
+            </div>
           </div>
         )}
 
         {/* Tab 2: Leaderboard */}
         {activeTab === 'leaderboard' && (
-          <div className="space-y-3">
-            <div className="bg-gradient-to-r from-neutral-950 via-neutral-900 to-[#1a2e05] border border-[#a3e635]/35 text-white rounded-2xl p-4 shadow-sm space-y-1">
-              <div className="flex items-center gap-2">
-                <Crown className="w-5 h-5 text-[#a3e635]" />
-                <h3 className="font-black text-sm text-[#a3e635]">Weekly Top Promoter Standings</h3>
-              </div>
-              <p className="text-xs text-neutral-300 leading-relaxed">
-                Top promoters with highest active invited VIP buyers receive additional weekly profit-share bonuses!
-              </p>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm divide-y divide-neutral-100 overflow-hidden">
-              {SAMPLE_PROMOTER_LEADERBOARD.map((promoter) => (
-                <div key={promoter.rank} className="p-3.5 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs ${
-                        promoter.rank === 1
-                          ? 'bg-neutral-950 text-[#a3e635] border border-[#a3e635] font-black'
-                          : promoter.rank === 2
-                          ? 'bg-lime-100 text-lime-900 border border-lime-300 font-black'
-                          : promoter.rank === 3
-                          ? 'bg-lime-50 text-lime-800 border border-lime-200 font-bold'
-                          : 'bg-neutral-100 text-neutral-600'
-                      }`}
-                    >
-                      {promoter.rank}
-                    </div>
-
-                    <div>
-                      <div className="text-xs font-bold text-neutral-900 flex items-center gap-1.5">
-                        <span>{promoter.phoneMasked}</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-neutral-100 text-neutral-600 font-medium">
-                          {promoter.badge}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-neutral-500">
-                        {promoter.activeInvites} Direct VIPs • {promoter.currentTier}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs font-black text-[#4d7c0f]">
-                      +₦{promoter.totalEarned.toLocaleString()}
-                    </div>
-                    <div className="text-[9px] text-neutral-400">Total Bounties</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <TopPromotersLeaderboard user={user} />
         )}
 
         {/* Tab 3: Promo Kit & High-Converting Pitch */}
@@ -597,7 +557,7 @@ Start earning daily automated income today! 🚀`;
             <div className="flex items-center justify-between border-b pb-3">
               <h3 className="font-bold text-base text-neutral-900 flex items-center gap-2">
                 <HelpCircle className="w-5 h-5 text-[#65a30d]" />
-                Promoter Bounty Program Rules
+                Promoters Program Rules
               </h3>
               <button
                 onClick={() => setShowRulesModal(false)}

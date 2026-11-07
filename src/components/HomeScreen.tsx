@@ -247,13 +247,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               </div>
               <div>
                 <div className="flex items-center gap-1.5">
-                  <h4 className="text-xs font-black text-white">Promoter Mega Bounty</h4>
+                  <h4 className="text-xs font-black text-white">Promoters Program</h4>
                   <span className="px-1.5 py-0.2 bg-[#a3e635] text-[9px] font-black text-neutral-950 rounded-full">
                     UP TO ₦3.5M
                   </span>
                 </div>
                 <p className="text-[11px] text-neutral-300 mt-0.5">
-                  Earn progressive cash bounties for inviting active VIP buyers!
+                  Earn progressive cash rewards for inviting active VIP buyers!
                 </p>
               </div>
             </div>
@@ -285,7 +285,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               onClick={onGoToProducts}
               className="text-xs font-black text-[#4d7c0f] hover:underline flex items-center gap-0.5 cursor-pointer"
             >
-              <span>All Fleets</span>
+              <span>All Products</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

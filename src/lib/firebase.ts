@@ -48,7 +48,8 @@ export const analyticsPromise = isSupported()
 // Initialize Firebase Authentication
 export const auth = getAuth(app);
 
-// Initialize Cloud Firestore with long-polling and memory cache for iframe/proxy resilience
+// Initialize Cloud Firestore with memoryLocalCache so cross-origin iframe IndexedDB
+// restrictions never abort Firestore transactions (local persistence is handled synchronously via localStorage)
 let firestoreDb: Firestore;
 try {
   firestoreDb = initializeFirestore(

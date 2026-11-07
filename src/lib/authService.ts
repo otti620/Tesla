@@ -3,13 +3,14 @@ import {
   createUserWithEmailAndPassword, 
   signOut,
   updatePassword,
-  User as FirebaseUser
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { auth, db, withFirestoreTimeout } from './firebase';
-import { UserState, PlatformSettings, TransactionRecord } from '../types';
+import { UserState, PlatformSettings, TransactionRecord, TeamMember } from '../types';
 import { INITIAL_PLATFORM_SETTINGS } from '../data/initialData';
 import { cleanNigerianPhoneDigits, isAdminUser } from '../utils/adminAuth';
+import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
+import { mergePurchasedProducts, mergeTransactionRecords } from '../utils/productUtils';
 
 export const ACCOUNTS_REGISTRY_KEY = 'tesla_accounts_registry_v2';
 export const SESSION_STORAGE_KEY = 'tesla_app_state_v2';
@@ -53,57 +54,412 @@ export function createAdminDefaultState(last10: string): UserState {
     purchasedProducts: [],
     teamMembers: [],
     records: [],
+    updatedAt: 0,
   };
 }
 
 /**
- * Finds user profile in Firestore by phone number or UID to ensure real cloud balance is loaded
+ * Deduplicates and merges two arrays of TeamMember objects by (level, cleanPhoneDigits),
+ * preserving the highest invested and commission figures.
+ */
+export function mergeTeamMembersList(
+  primary?: TeamMember[] | null,
+  secondary?: TeamMember[] | null
+): TeamMember[] {
+  const map = new Map<string, TeamMember>();
+
+  const processList = (list?: TeamMember[] | null) => {
+    if (!list || !Array.isArray(list)) return;
+    for (const tm of list) {
+      if (!tm || !tm.phone) continue;
+      if (
+        tm.id?.startsWith('tm_adm_') ||
+        tm.id?.startsWith('sim_') ||
+        tm.phone === '+234 8031122334' ||
+        tm.phone === '+234 8149988776'
+      ) {
+        continue;
+      }
+      const digits = cleanNigerianPhoneDigits(tm.phone);
+      const level = tm.level || 1;
+      const key = `${level}_${digits}`;
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          ...tm,
+          phone: `+234 ${digits}`,
+          level,
+          invested: Number(tm.invested) || 0,
+          commission: Number(tm.commission) || 0,
+        });
+      } else {
+        map.set(key, {
+          ...existing,
+          ...tm,
+          phone: `+234 ${digits}`,
+          level,
+          invested: Math.max(Number(existing.invested) || 0, Number(tm.invested) || 0),
+          commission: Math.max(Number(existing.commission) || 0, Number(tm.commission) || 0),
+          joinDate: existing.joinDate || tm.joinDate || (existing as any).joinedDate || (tm as any).joinedDate || new Date().toISOString().split('T')[0],
+        });
+      }
+    }
+  };
+
+  processList(primary);
+  processList(secondary);
+
+  return Array.from(map.values());
+}
+
+/**
+ * Computes the effective last-mutation timestamp for a UserState snapshot by inspecting
+ * `updatedAt`, transaction record timestamps, and purchased product claim/purchase timestamps.
+ */
+export function getEffectiveStateTimestamp(s?: Partial<UserState> | null): number {
+  if (!s) return 0;
+  let maxTs = Number(s.updatedAt) || 0;
+
+  if (Array.isArray(s.records)) {
+    for (const r of s.records) {
+      if (!r) continue;
+      const isWelcome =
+        r.title === 'Registration Welcome Bonus' ||
+        r.id?.startsWith('reg_') ||
+        (r.type === 'bonus' && r.details?.includes('Welcome Grant'));
+      // Welcome bonus exists on initial registration; still consider it if maxTs is 0,
+      // but non-welcome records reflect subsequent user activity
+      const rTs = Math.max(Number(r.timestamp) || 0, Number(r.processedAt) || 0);
+      if (!isWelcome && rTs > maxTs) {
+        maxTs = rTs;
+      } else if (isWelcome && maxTs === 0 && rTs > 0) {
+        maxTs = 1; // baseline for newly registered state with only welcome bonus
+      }
+    }
+  }
+
+  if (Array.isArray(s.purchasedProducts)) {
+    for (const p of s.purchasedProducts) {
+      if (!p) continue;
+      const pTs = Math.max(Number(p.purchaseDate) || 0, Number(p.lastClaimDate) || 0);
+      if (pTs > maxTs) maxTs = pTs;
+    }
+  }
+
+  return maxTs;
+}
+
+/**
+ * Deterministically merges two UserState snapshots (e.g., local state and cloud state)
+ * so that stale cloud snapshots NEVER overwrite newer local purchases, balance changes,
+ * bank details, fund PINs, team members, or transaction records, and vice versa.
+ */
+export function mergeUserStates(
+  stateA?: Partial<UserState> | null,
+  stateB?: Partial<UserState> | null
+): UserState {
+  if (!stateA && !stateB) {
+    return createAdminDefaultState('0000000000');
+  }
+  if (!stateA) return stateB as UserState;
+  if (!stateB) return stateA as UserState;
+
+  const tsA = getEffectiveStateTimestamp(stateA);
+  const tsB = getEffectiveStateTimestamp(stateB);
+
+  // Determine which state has more real activity if timestamps are tied or missing
+  const richnessA =
+    (stateA.purchasedProducts?.length || 0) * 100 +
+    (stateA.records?.length || 0) * 10 +
+    (stateA.teamMembers?.length || 0) * 5 +
+    (stateA.bankAccount ? 20 : 0) +
+    (stateA.fundPin && stateA.fundPin !== '123456' ? 10 : 0);
+
+  const richnessB =
+    (stateB.purchasedProducts?.length || 0) * 100 +
+    (stateB.records?.length || 0) * 10 +
+    (stateB.teamMembers?.length || 0) * 5 +
+    (stateB.bankAccount ? 20 : 0) +
+    (stateB.fundPin && stateB.fundPin !== '123456' ? 10 : 0);
+
+  const timeA = Math.max(Number(stateA.updatedAt) || 0, getEffectiveStateTimestamp(stateA));
+  const timeB = Math.max(Number(stateB.updatedAt) || 0, getEffectiveStateTimestamp(stateB));
+
+  let older: Partial<UserState>;
+  let newer: Partial<UserState>;
+
+  if (timeA !== timeB) {
+    older = timeA < timeB ? stateA : stateB;
+    newer = timeA < timeB ? stateB : stateA;
+  } else {
+    const recTsA = Math.max(0, ...(stateA.records || []).map((r) => Number(r.timestamp) || 0));
+    const recTsB = Math.max(0, ...(stateB.records || []).map((r) => Number(r.timestamp) || 0));
+    if (recTsA !== recTsB) {
+      older = recTsA < recTsB ? stateA : stateB;
+      newer = recTsA < recTsB ? stateB : stateA;
+    } else {
+      older = richnessA <= richnessB ? stateA : stateB;
+      newer = richnessA <= richnessB ? stateB : stateA;
+    }
+  }
+
+  const mergedProducts = mergePurchasedProducts(newer.purchasedProducts, older.purchasedProducts);
+  const mergedTeam = mergeTeamMembersList(newer.teamMembers, older.teamMembers);
+  const mergedRecords = mergeTransactionRecords(newer.records, older.records);
+
+  const mergedMilestones = Array.from(
+    new Set([
+      ...(newer.claimedPromoterMilestones || []),
+      ...(older.claimedPromoterMilestones || []),
+    ])
+  );
+
+  // Authoritative balance:
+  // newer.balance reflects the latest confirmed user state (e.g. recent purchase deduction, withdrawal, or admin adjustment).
+  const reconciledBalance =
+    newer.balance !== undefined && newer.balance !== null
+      ? Number(newer.balance)
+      : Number(older.balance) || 0;
+
+  // Reconcile cumulative income: never decrease, and ensure it is at least the sum of income + commission records
+  const earnedFromRecords = mergedRecords
+    .filter((r) => (r.type === 'income' || r.type === 'commission') && r.status === 'success')
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  const reconciledCumulativeIncome = Math.max(
+    Number(older.cumulativeIncome) || 0,
+    Number(newer.cumulativeIncome) || 0,
+    earnedFromRecords
+  );
+
+  // Preserve custom fundPin over default '123456'
+  const resolvedFundPin =
+    newer.fundPin && newer.fundPin !== '123456'
+      ? newer.fundPin
+      : older.fundPin && older.fundPin !== '123456'
+      ? older.fundPin
+      : newer.fundPin || older.fundPin || '123456';
+
+  // Preserve latest lastCheckInDate
+  const resolvedCheckIn =
+    newer.lastCheckInDate && older.lastCheckInDate
+      ? newer.lastCheckInDate >= older.lastCheckInDate
+        ? newer.lastCheckInDate
+        : older.lastCheckInDate
+      : newer.lastCheckInDate || older.lastCheckInDate || null;
+
+  // Preserve non-default inviteCode
+  const resolvedInviteCode =
+    newer.inviteCode && newer.inviteCode !== 'P5ZP4S'
+      ? newer.inviteCode
+      : older.inviteCode && older.inviteCode !== 'P5ZP4S'
+      ? older.inviteCode
+      : newer.inviteCode || older.inviteCode || 'P5ZP4S';
+
+  const resolvedInvitedBy = newer.invitedBy || older.invitedBy;
+
+  const merged: UserState = {
+    ...older,
+    ...newer,
+    isLoggedIn: Boolean(newer.isLoggedIn ?? older.isLoggedIn ?? true),
+    phone: newer.phone || older.phone || '',
+    balance: Math.max(0, Number(reconciledBalance.toFixed(2))),
+    cumulativeIncome: Math.max(0, Number(reconciledCumulativeIncome.toFixed(2))),
+    inviteCode: resolvedInviteCode,
+    ...(resolvedInvitedBy ? { invitedBy: resolvedInvitedBy } : {}),
+    bankAccount: newer.bankAccount || older.bankAccount || null,
+    fundPin: resolvedFundPin,
+    loginPassword: newer.loginPassword || older.loginPassword || '123456',
+    lastCheckInDate: resolvedCheckIn,
+    purchasedProducts: mergedProducts,
+    teamMembers: mergedTeam,
+    records: mergedRecords,
+    claimedPromoterMilestones: mergedMilestones,
+    creditedByAdmin: Boolean(newer.creditedByAdmin || older.creditedByAdmin),
+    updatedAt: Math.max(tsA, tsB, Number(newer.updatedAt) || 0, Number(older.updatedAt) || 0),
+  };
+
+  return merged;
+}
+
+/**
+ * Synchronously saves a UserState into both localStorage keys (`SESSION_STORAGE_KEY` and `ACCOUNTS_REGISTRY_KEY`)
+ * and asynchronously writes sanitized payloads to Firestore under both `users/{cleanDigits}` and `users/{firebaseUid}`.
+ */
+export async function persistUserStateEverywhere(
+  userState: UserState,
+  passwordOverride?: string
+): Promise<UserState> {
+  if (!userState || !userState.phone) return userState;
+
+  const { display, last10 } = normalizePhone(userState.phone);
+  const now = Date.now();
+
+  let accounts: Record<string, LocalAccount> = {};
+  try {
+    const raw = localStorage.getItem(ACCOUNTS_REGISTRY_KEY);
+    if (raw) accounts = JSON.parse(raw);
+  } catch {}
+
+  const existingLocal = accounts[last10]?.userState;
+  const stampedInput: UserState = {
+    ...userState,
+    phone: display,
+    updatedAt: Math.max(now, Number(userState.updatedAt) || 0),
+  };
+
+  // Merge with existing local registry entry so we never accidentally drop fields
+  const finalState: UserState = existingLocal
+    ? {
+        ...mergeUserStates(existingLocal, stampedInput),
+        // Because `stampedInput` is an explicit mutation from the caller, its balance and updatedAt are authoritative
+        balance: stampedInput.balance,
+        cumulativeIncome: Math.max(
+          Number(stampedInput.cumulativeIncome) || 0,
+          Number(existingLocal.cumulativeIncome) || 0
+        ),
+        bankAccount: stampedInput.bankAccount ?? existingLocal.bankAccount ?? null,
+        fundPin: stampedInput.fundPin || existingLocal.fundPin || '123456',
+        loginPassword:
+          passwordOverride ||
+          stampedInput.loginPassword ||
+          existingLocal.loginPassword ||
+          accounts[last10]?.password ||
+          '123456',
+        isLoggedIn: stampedInput.isLoggedIn,
+        updatedAt: stampedInput.updatedAt,
+      }
+    : stampedInput;
+
+  const resolvedPassword =
+    passwordOverride ||
+    finalState.loginPassword ||
+    accounts[last10]?.password ||
+    '123456';
+
+  // 1. Update local accounts registry synchronously
+  if (last10 && last10.length >= 7) {
+    accounts[last10] = {
+      phone: display,
+      digits: last10,
+      password: resolvedPassword,
+      userState: finalState,
+      createdAt: accounts[last10]?.createdAt || now,
+      updatedAt: now,
+    };
+    saveLocalAccounts(accounts);
+  }
+
+  // 2. Update active session storage synchronously if logged in
+  if (finalState.isLoggedIn) {
+    try {
+      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(finalState));
+    } catch {}
+  }
+
+  // 3. Persist sanitized payload to Firestore under both `users/{last10}` and `users/{uid}`
+  const uid = auth.currentUser?.uid;
+  const sanitizedPayload = sanitizeForFirestore({
+    ...finalState,
+    ...(uid ? { firebaseUid: uid } : {}),
+    updatedAt: finalState.updatedAt || now,
+  });
+
+  const writes: Promise<any>[] = [];
+  if (last10 && last10.length >= 7) {
+    writes.push(
+      withFirestoreTimeout(
+        setDoc(doc(db, 'users', last10), sanitizedPayload, { merge: true }),
+        3500
+      ).catch(() => {})
+    );
+  }
+  if (uid && uid !== last10) {
+    writes.push(
+      withFirestoreTimeout(
+        setDoc(doc(db, 'users', uid), sanitizedPayload, { merge: true }),
+        3500
+      ).catch(() => {})
+    );
+  }
+
+  if (writes.length > 0) {
+    await Promise.all(writes);
+  }
+
+  return finalState;
+}
+
+/**
+ * Finds user profile in Firestore by phone number AND UID, merging both documents
+ * if both exist so updates written to either document ID are always preserved.
  */
 export async function findCloudUserByPhoneOrUid(
   cleanDigits: string,
   firebaseUid?: string | null
 ): Promise<{ data: UserState; docId: string } | null> {
+  let uidDoc: { data: UserState; docId: string } | null = null;
+  let phoneDoc: { data: UserState; docId: string } | null = null;
+
   // 1. Check by firebaseUid if provided
   if (firebaseUid) {
     try {
-      const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', firebaseUid)), 2000);
+      const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', firebaseUid)), 2500);
       if (snap.exists()) {
-        return { data: snap.data() as UserState, docId: snap.id };
+        uidDoc = { data: snap.data() as UserState, docId: snap.id };
       }
     } catch {}
   }
 
   // 2. Check by cleanDigits as doc id
-  try {
-    const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', cleanDigits)), 2000);
-    if (snap.exists()) {
-      return { data: snap.data() as UserState, docId: snap.id };
-    }
-  } catch {}
+  if (cleanDigits) {
+    try {
+      const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', cleanDigits)), 2500);
+      if (snap.exists()) {
+        phoneDoc = { data: snap.data() as UserState, docId: snap.id };
+      }
+    } catch {}
+  }
+
+  if (uidDoc && phoneDoc) {
+    return {
+      data: mergeUserStates(uidDoc.data, phoneDoc.data),
+      docId: phoneDoc.docId,
+    };
+  }
+  if (phoneDoc) return phoneDoc;
+  if (uidDoc) return uidDoc;
 
   // 3. Search collection('users') where phone clean digits match
   try {
-    const snap = await withFirestoreTimeout(getDocs(collection(db, 'users')), 2500);
+    const snap = await withFirestoreTimeout(getDocs(collection(db, 'users')), 3000);
+    let matched: { data: UserState; docId: string } | null = null;
     for (const d of snap.docs) {
       const u = d.data() as UserState;
       const p = cleanNigerianPhoneDigits(u.phone || '');
       if (p === cleanDigits) {
-        return { data: u, docId: d.id };
+        if (!matched) {
+          matched = { data: u, docId: d.id };
+        } else {
+          matched = { data: mergeUserStates(matched.data, u), docId: matched.docId };
+        }
       }
     }
+    if (matched) return matched;
   } catch {}
 
   return null;
 }
 
+let mockDataPurgedOnce = false;
+
 /**
- * Purges all mock data across all local storage structures (team members, fake products, fake grants, fake gift codes)
+ * Purges legacy mock data across local storage structures once on startup
+ * without wiping real user gift codes or user records.
  */
 export function purgeAllMockDataAcrossPlatform(): void {
-  try {
-    localStorage.removeItem('tesla_gift_codes_state');
-    sessionStorage.removeItem('tesla_gift_codes_state');
-  } catch {}
+  if (mockDataPurgedOnce) return;
+  mockDataPurgedOnce = true;
 
   try {
     const raw = localStorage.getItem(ACCOUNTS_REGISTRY_KEY);
@@ -196,14 +552,13 @@ export function purgeAllMockDataAcrossPlatform(): void {
   }
 }
 
-// Auto-run purge on load
+// Auto-run purge once on load
 purgeAllMockDataAcrossPlatform();
 
 /**
  * Retrieves the local accounts registry, ensuring admin accounts are initialized cleanly
  */
 export function getLocalAccounts(): Record<string, LocalAccount> {
-  // Purge any stale mock data first
   purgeAllMockDataAcrossPlatform();
 
   let accounts: Record<string, LocalAccount> = {};
@@ -229,7 +584,7 @@ export function getLocalAccounts(): Record<string, LocalAccount> {
         password: '123456',
         userState: adminState,
         createdAt: Date.now() - 86400000 * 30,
-        updatedAt: Date.now(),
+        updatedAt: 0,
       };
       modified = true;
     }
@@ -263,8 +618,8 @@ export function generateUniqueInviteCode(digits: string): string {
 }
 
 /**
- * Registers a new account with cloud synchronization and offline fallback
- * Ensures Firebase Auth user is created/signed-in and profile is stored in Firestore
+ * Registers a new account with cloud synchronization and offline fallback.
+ * If the account already exists in Firestore or local registry, safely merges and preserves all data.
  */
 export async function registerAccount(
   rawPhone: string,
@@ -281,13 +636,11 @@ export async function registerAccount(
     const cred = await createUserWithEmailAndPassword(auth, authEmail, password);
     firebaseUid = cred.user.uid;
   } catch (firebaseErr: any) {
-    // If phone is already registered in Firebase Auth, sign in to link session
     if (firebaseErr?.code === 'auth/email-already-in-use') {
       try {
         const cred = await signInWithEmailAndPassword(auth, authEmail, password);
         firebaseUid = cred.user.uid;
       } catch {
-        // Try fallback default password (e.g. if account was auto-provisioned earlier)
         try {
           const cred = await signInWithEmailAndPassword(auth, authEmail, '123456');
           firebaseUid = cred.user.uid;
@@ -295,7 +648,6 @@ export async function registerAccount(
             await updatePassword(cred.user, password);
           } catch {}
         } catch {
-          // If password doesn't match, check local registry
           if (accounts[last10]?.password) {
             try {
               const cred = await signInWithEmailAndPassword(auth, authEmail, accounts[last10].password);
@@ -310,52 +662,49 @@ export async function registerAccount(
     }
   }
 
-  // 2. Check if this user already has an existing profile in Firestore
+  // 2. Check if this user already has an existing profile in Firestore or local registry
   const cloudExisting = await findCloudUserByPhoneOrUid(last10, firebaseUid);
+  const localPrev = accounts[last10]?.userState;
   const cleanInviterCode = inviteCode ? inviteCode.trim().toUpperCase() : 'P5ZP4S';
   let finalUserState: UserState;
 
-  if (cloudExisting) {
-    // PRESERVE real cloud balance, cumulative income, products, teamMembers, and records!
-    const localPrev = accounts[last10]?.userState;
+  if (cloudExisting || (localPrev && !isAdmin)) {
+    const merged = mergeUserStates(localPrev, cloudExisting?.data);
     finalUserState = {
-      ...cloudExisting.data,
+      ...merged,
       phone: display,
       isLoggedIn: true,
       loginPassword: password,
-      invitedBy: cloudExisting.data.invitedBy || localPrev?.invitedBy || cleanInviterCode,
-      teamMembers:
-        (cloudExisting.data.teamMembers?.length || 0) >= (localPrev?.teamMembers?.length || 0)
-          ? cloudExisting.data.teamMembers || []
-          : localPrev?.teamMembers || [],
+      invitedBy: merged.invitedBy || cleanInviterCode,
+      updatedAt: Date.now(),
     };
   } else {
     // Fresh registration: grant welcome bonus
     const signupBonus = isAdmin ? 0 : (settings.signupBonus || 1100);
+    const now = Date.now();
     const welcomeRecord: TransactionRecord = {
-      id: `reg_${Date.now()}`,
+      id: `reg_${now}`,
       type: 'bonus',
       title: 'Registration Welcome Bonus',
       amount: signupBonus,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: 'Official Ola Cabs Welcome Grant',
     };
 
-    const userOwnInviteCode = isAdmin 
-      ? (last10 === '7077599057' ? 'TSLROOT1' : 'TSLROOT2')
+    const userOwnInviteCode = isAdmin
+      ? last10 === '7077599057'
+        ? 'TSLROOT1'
+        : 'TSLROOT2'
       : generateUniqueInviteCode(last10);
 
     finalUserState = isAdmin
       ? {
-          ...createAdminDefaultState(last10),
-          balance: accounts[last10]?.userState?.balance ?? 0.0,
-          cumulativeIncome: accounts[last10]?.userState?.cumulativeIncome ?? 0.0,
-          records: accounts[last10]?.userState?.records ?? [],
-          purchasedProducts: accounts[last10]?.userState?.purchasedProducts ?? [],
-          teamMembers: accounts[last10]?.userState?.teamMembers ?? [],
-          bankAccount: accounts[last10]?.userState?.bankAccount ?? null,
+          ...mergeUserStates(createAdminDefaultState(last10), localPrev),
+          phone: display,
+          isLoggedIn: true,
           loginPassword: password,
+          updatedAt: now,
         }
       : {
           isLoggedIn: true,
@@ -371,66 +720,16 @@ export async function registerAccount(
           purchasedProducts: [],
           teamMembers: [],
           records: signupBonus > 0 ? [welcomeRecord] : [],
+          updatedAt: now,
         };
   }
 
-  // 3. Immediately store into local accounts registry for guaranteed fallback
-  accounts[last10] = {
-    phone: display,
-    digits: last10,
-    password,
-    userState: finalUserState,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  saveLocalAccounts(accounts);
-
-  // 4. Persist active session to localStorage
-  try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(finalUserState));
-  } catch {
-    // ignore
-  }
-
-  // 5. Persist to Firestore under both UID and phone digits (non-blocking with timeout)
-  const targetDocId = firebaseUid || last10;
-  try {
-    await withFirestoreTimeout(
-      setDoc(
-        doc(db, 'users', targetDocId),
-        {
-          ...finalUserState,
-          firebaseUid: targetDocId,
-          updatedAt: Date.now(),
-        },
-        { merge: true }
-      ),
-      2000
-    );
-    if (last10 && targetDocId !== last10) {
-      withFirestoreTimeout(
-        setDoc(
-          doc(db, 'users', last10),
-          {
-            ...finalUserState,
-            firebaseUid: targetDocId,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        ),
-        1800
-      ).catch(() => {});
-    }
-  } catch {
-    // Offline fallback already saved in localStorage
-  }
-
-  return finalUserState;
+  return await persistUserStateEverywhere(finalUserState, password);
 }
 
 /**
- * Authenticates user with multi-tier fallback (Firebase Cloud First -> Local Fallback Registry)
- * Strictly loads and preserves REAL cloud balances and team commissions from Firebase & Local Registry.
+ * Authenticates user with multi-tier fallback (Firebase Cloud + Local Registry reconciliation)
+ * Strictly preserves all balances, purchased products, bank accounts, fund PINs, team members, and records.
  */
 export async function loginAccount(rawPhone: string, password: string): Promise<UserState> {
   const { display, last10, authEmail, isAdmin } = normalizePhone(rawPhone);
@@ -443,18 +742,18 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
     const cred = await signInWithEmailAndPassword(auth, authEmail, password);
     firebaseUid = cred.user.uid;
   } catch (fbErr: any) {
-    // If wrong password, and user is an admin or used 123456, try default credential
     if (isAdmin || password === '123456') {
       try {
         const cred = await signInWithEmailAndPassword(auth, authEmail, '123456');
         firebaseUid = cred.user.uid;
         if (password !== '123456') {
-          try { await updatePassword(cred.user, password); } catch {}
+          try {
+            await updatePassword(cred.user, password);
+          } catch {}
         }
       } catch {}
     }
 
-    // If user not found in Firebase Auth, auto-create so Firebase session is established
     if (!firebaseUid && (fbErr?.code === 'auth/user-not-found' || fbErr?.code === 'auth/invalid-credential')) {
       try {
         const newCred = await createUserWithEmailAndPassword(auth, authEmail, password);
@@ -464,139 +763,53 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
           try {
             const cred = await signInWithEmailAndPassword(auth, authEmail, '123456');
             firebaseUid = cred.user.uid;
-            try { await updatePassword(cred.user, password); } catch {}
+            try {
+              await updatePassword(cred.user, password);
+            } catch {}
           } catch {}
         }
       }
     }
   }
 
-  // TIER 2: Load REAL User State from Firestore and merge with local registry
+  // TIER 2: Load User State from Firestore AND Local Registry, and deterministically merge them
   const cloudUser = await findCloudUserByPhoneOrUid(last10, firebaseUid);
-  const localUser = accounts[last10]?.userState;
+  const localAcc = accounts[last10];
+  const localUser = localAcc?.userState;
 
-  if (cloudUser) {
-    const mergedTeam = [...(cloudUser.data.teamMembers || [])];
-    if (localUser?.teamMembers) {
-      for (const lm of localUser.teamMembers) {
-        const lmDigits = cleanNigerianPhoneDigits(lm.phone);
-        const existingIdx = mergedTeam.findIndex(
-          (cm) => cm.level === lm.level && cleanNigerianPhoneDigits(cm.phone) === lmDigits
-        );
-        if (existingIdx < 0) {
-          mergedTeam.push(lm);
-        } else {
-          mergedTeam[existingIdx] = {
-            ...mergedTeam[existingIdx],
-            invested: Math.max(mergedTeam[existingIdx].invested || 0, lm.invested || 0),
-            commission: Math.max(mergedTeam[existingIdx].commission || 0, lm.commission || 0),
-          };
-        }
+  if (cloudUser || localUser) {
+    // Verify password if user only exists locally and Firebase Auth didn't validate
+    if (!cloudUser && localAcc) {
+      const isPasswordValid =
+        localAcc.password === password ||
+        localUser?.loginPassword === password ||
+        (isAdmin && (password === '123456' || localAcc.password === '123456' || Boolean(password)));
+
+      if (!isPasswordValid) {
+        throw new Error('Incorrect password. Please verify your login credentials.');
       }
     }
 
+    const merged = mergeUserStates(localUser, cloudUser?.data);
     const restoredState: UserState = {
-      ...localUser,
-      ...cloudUser.data,
+      ...merged,
       phone: display,
       isLoggedIn: true,
-      loginPassword: password,
-      balance: Math.max(Number(cloudUser.data.balance) || 0, Number(localUser?.balance) || 0),
-      cumulativeIncome: Math.max(
-        Number(cloudUser.data.cumulativeIncome) || 0,
-        Number(localUser?.cumulativeIncome) || 0
-      ),
-      teamMembers: mergedTeam,
-      records:
-        (cloudUser.data.records?.length || 0) >= (localUser?.records?.length || 0)
-          ? cloudUser.data.records || []
-          : localUser?.records || [],
+      loginPassword: password || merged.loginPassword || '123456',
+      updatedAt: Math.max(Date.now(), Number(merged.updatedAt) || 0),
     };
 
-    // Keep local registry cache updated with the REAL merged state
-    accounts[last10] = {
-      phone: display,
-      digits: last10,
-      password,
-      userState: restoredState,
-      createdAt: accounts[last10]?.createdAt || Date.now(),
-      updatedAt: Date.now(),
-    };
-    saveLocalAccounts(accounts);
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(restoredState));
-
-    // Sync to doc(db, 'users', firebaseUid) if needed
-    if (firebaseUid && cloudUser.docId !== firebaseUid) {
-      withFirestoreTimeout(
-        setDoc(doc(db, 'users', firebaseUid), { ...restoredState, firebaseUid }, { merge: true }),
-        1800
-      ).catch(() => {});
-    }
-
-    return restoredState;
+    return await persistUserStateEverywhere(restoredState, password);
   }
 
-  // TIER 3: Local Registry Fallback
-  const localAcc = accounts[last10];
-  if (localAcc) {
-    const isPasswordValid = 
-      localAcc.password === password || 
-      (isAdmin && (password === '123456' || localAcc.password === '123456' || Boolean(password)));
-
-    if (isPasswordValid) {
-      // If admin, update stored password to the active password
-      if (isAdmin && password && localAcc.password !== password) {
-        localAcc.password = password;
-        localAcc.userState.loginPassword = password;
-        accounts[last10] = localAcc;
-        saveLocalAccounts(accounts);
-      }
-
-      const restoredUser: UserState = {
-        ...localAcc.userState,
-        phone: display,
-        isLoggedIn: true,
-        loginPassword: password,
-      };
-
-      // If Firebase Auth succeeded, backfill Firestore with the profile
-      const targetDocId = firebaseUid || last10;
-      setDoc(doc(db, 'users', targetDocId), {
-        ...restoredUser,
-        firebaseUid: targetDocId,
-        updatedAt: Date.now(),
-      }, { merge: true }).catch(() => {});
-
-      localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(restoredUser));
-      return restoredUser;
-    } else {
-      throw new Error('Incorrect password. Please verify your login credentials.');
-    }
-  }
-
-  // TIER 4: Admin auto-provision fallback if user entered admin phone
+  // TIER 3: Admin auto-provision fallback if user entered admin phone
   if (isAdmin) {
-    const adminState = createAdminDefaultState(last10);
-    adminState.loginPassword = password;
-    accounts[last10] = {
-      phone: display,
-      digits: last10,
-      password: password || '123456',
-      userState: adminState,
-      createdAt: Date.now(),
+    const adminState: UserState = {
+      ...createAdminDefaultState(last10),
+      loginPassword: password || '123456',
       updatedAt: Date.now(),
     };
-    saveLocalAccounts(accounts);
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(adminState));
-
-    const targetDocId = firebaseUid || last10;
-    setDoc(doc(db, 'users', targetDocId), {
-      ...adminState,
-      firebaseUid: targetDocId,
-      updatedAt: Date.now(),
-    }, { merge: true }).catch(() => {});
-
-    return adminState;
+    return await persistUserStateEverywhere(adminState, password || '123456');
   }
 
   // Not found in any provider
@@ -605,7 +818,7 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
 
 /**
  * Direct Instant Admin Access for Authorized Numbers
- * Connects to Firebase Auth and fetches REAL cloud state
+ * Connects to Firebase Auth and merges cloud + local admin state
  */
 export async function directAdminLogin(adminDigits: '7077599057' | '9011711470'): Promise<UserState> {
   const accounts = getLocalAccounts();
@@ -624,42 +837,36 @@ export async function directAdminLogin(adminDigits: '7077599057' | '9011711470')
     } catch {}
   }
 
-  // 2. Fetch REAL Firestore profile if existing
+  // 2. Fetch Firestore profile if existing and merge with local
   const cloud = await findCloudUserByPhoneOrUid(adminDigits, firebaseUid);
+  const baseState = stored?.userState || createAdminDefaultState(adminDigits);
+  const merged = mergeUserStates(baseState, cloud?.data);
 
-  const adminState: UserState = cloud 
-    ? { ...cloud.data, phone: `+234 ${adminDigits}`, isLoggedIn: true }
-    : (stored?.userState || createAdminDefaultState(adminDigits));
-
-  adminState.isLoggedIn = true;
-  adminState.phone = `+234 ${adminDigits}`;
-
-  accounts[adminDigits] = {
-    phone: adminState.phone,
-    digits: adminDigits,
-    password: stored?.password || '123456',
-    userState: adminState,
-    createdAt: stored?.createdAt || Date.now(),
-    updatedAt: Date.now(),
+  const adminState: UserState = {
+    ...merged,
+    isLoggedIn: true,
+    phone: `+234 ${adminDigits}`,
+    updatedAt: Math.max(Date.now(), Number(merged.updatedAt) || 0),
   };
-  saveLocalAccounts(accounts);
-  localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(adminState));
 
-  if (firebaseUid) {
-    setDoc(doc(db, 'users', firebaseUid), {
-      ...adminState,
-      firebaseUid,
-      updatedAt: Date.now(),
-    }, { merge: true }).catch(() => {});
-  }
-
-  return adminState;
+  return await persistUserStateEverywhere(adminState, stored?.password || '123456');
 }
 
 /**
- * Safely sign out current user
+ * Safely sign out current user without deleting their persistent account in `ACCOUNTS_REGISTRY_KEY`
  */
 export async function signOutUser() {
+  try {
+    // Ensure current session state is saved to the accounts registry before removing active session key
+    const sessionRaw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (sessionRaw) {
+      const currentSession: UserState = JSON.parse(sessionRaw);
+      if (currentSession?.phone) {
+        await persistUserStateEverywhere({ ...currentSession, isLoggedIn: false });
+      }
+    }
+  } catch {}
+
   try {
     await signOut(auth);
   } catch {
@@ -671,3 +878,4 @@ export async function signOutUser() {
     // ignore
   }
 }
+

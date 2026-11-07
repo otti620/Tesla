@@ -119,142 +119,6 @@ export const ProductScreen: React.FC<ProductScreenProps> = ({
 
   return (
     <div className="min-h-screen pb-28 bg-[#f4f6f0] text-neutral-900">
-      {/* Top Fleet Command Header */}
-      <div className="bg-neutral-950 text-white sticky top-0 z-20 px-3.5 pt-3.5 pb-3 border-b border-[#a3e635]/30 shadow-md">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#a3e635] animate-pulse" />
-              <span className="text-[10px] font-black uppercase tracking-widest text-[#a3e635]">
-                Ola Cabs Fleet Showroom
-              </span>
-            </div>
-            <h1 className="text-base font-black text-white tracking-tight">
-              Deploy Ride-Hailing Vehicles
-            </h1>
-          </div>
-
-          {/* Layout Toggle */}
-          <div className="flex items-center bg-neutral-900 p-0.5 rounded-lg border border-neutral-800">
-            <button
-              type="button"
-              onClick={() => setViewMode('showroom')}
-              className={`p-1.5 rounded-md transition cursor-pointer ${
-                viewMode === 'showroom'
-                  ? 'bg-[#a3e635] text-neutral-950'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-              title="Showroom Cards"
-            >
-              <Rows3 className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('grid')}
-              className={`p-1.5 rounded-md transition cursor-pointer ${
-                viewMode === 'grid'
-                  ? 'bg-[#a3e635] text-neutral-950'
-                  : 'text-neutral-400 hover:text-white'
-              }`}
-              title="2-Column Dispatch Grid"
-            >
-              <LayoutGrid className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Fleet Garage & Revenue Summary */}
-        <div className="grid grid-cols-2 gap-2.5">
-          <button
-            onClick={onNavigateToMyStore}
-            className="bg-neutral-900 hover:bg-neutral-800 border border-[#a3e635]/35 text-white rounded-xl py-2 px-3 flex items-center justify-between shadow-xs active:scale-95 transition cursor-pointer"
-          >
-            <div className="text-left">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
-                Active Garage
-              </span>
-              <span className="text-base font-black text-[#a3e635]">
-                {myStoreCount} {myStoreCount === 1 ? 'Cab' : 'Cabs'}
-              </span>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-[#a3e635]/15 border border-[#a3e635]/30 flex items-center justify-center">
-              <Car className="w-4 h-4 text-[#a3e635]" />
-            </div>
-          </button>
-
-          <button
-            onClick={onNavigateToMyStore}
-            className="bg-[#a3e635] hover:bg-[#84cc16] border border-[#84cc16] text-neutral-950 rounded-xl py-2 px-3 flex items-center justify-between shadow-xs active:scale-95 transition cursor-pointer"
-          >
-            <div className="text-left min-w-0">
-              <span className="text-[10px] font-black uppercase tracking-wider text-neutral-800 block">
-                Fleet Revenue
-              </span>
-              <span className="text-base font-black text-neutral-950 truncate block">
-                ₦ {totalRevenue.toLocaleString()}
-              </span>
-            </div>
-            <div className="w-8 h-8 rounded-lg bg-neutral-950/10 flex items-center justify-center shrink-0">
-              <TrendingUp className="w-4 h-4 text-neutral-950" />
-            </div>
-          </button>
-        </div>
-
-        {/* Daily Yield Claim / Countdown Strip */}
-        {myStoreCount > 0 && (
-          <div className="mt-2.5">
-            {claimableIncome > 0 ? (
-              <button
-                type="button"
-                onClick={onCollectRevenue}
-                className="w-full py-2 bg-[#a3e635] hover:bg-[#84cc16] text-neutral-950 text-xs font-black rounded-lg shadow-md active:scale-98 transition flex items-center justify-center gap-1.5 cursor-pointer animate-pulse"
-              >
-                <Zap className="w-4 h-4 fill-neutral-950 text-neutral-950" />
-                <span>Claim Daily Fleet Fare (+₦ {claimableIncome.toLocaleString()})</span>
-              </button>
-            ) : (
-              <div className="w-full py-1.5 bg-neutral-900 text-white text-[11px] font-medium rounded-lg border border-neutral-800 flex items-center justify-center gap-2 select-none">
-                <Clock className="w-3.5 h-3.5 text-[#a3e635] shrink-0" />
-                <span>
-                  Next Fare Settlement (12:00 AM WAT) in:{' '}
-                  <strong className="font-mono text-[#a3e635] font-bold">
-                    {midnightCountdown.formattedString}
-                  </strong>
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Category Filter Pills */}
-        <div className="flex items-center gap-1.5 mt-3">
-          {[
-            { id: 'all', label: `All Fleets (${products.length})` },
-            {
-              id: 'available',
-              label: `Active Dispatch (${products.filter((p) => p.status === 'available').length})`,
-            },
-            {
-              id: 'upcoming',
-              label: `Upcoming (${products.filter((p) => p.status !== 'available').length})`,
-            },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setFilterTab(tab.id as 'all' | 'available' | 'upcoming')}
-              className={`flex-1 py-1.5 px-2 rounded-lg text-[11px] font-black transition cursor-pointer ${
-                filterTab === tab.id
-                  ? 'bg-[#a3e635] text-neutral-950 shadow-2xs'
-                  : 'bg-neutral-900 text-neutral-400 hover:text-white border border-neutral-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {/* Fleet Catalog Content */}
       <div className="p-3.5">
         {viewMode === 'showroom' ? (
@@ -262,7 +126,7 @@ export const ProductScreen: React.FC<ProductScreenProps> = ({
           <div className="space-y-4">
             {filteredProducts.map((prod) => {
               const isAvailable = prod.status === 'available';
-              const ownedCount = user.purchasedProducts.filter((p) => p.id === prod.id).length;
+              const ownedCount = user.purchasedProducts.filter((p) => p.productId === prod.id || p.id === prod.id).length;
               const dailyRoiPct = ((prod.dailyIncome / prod.price) * 100).toFixed(1);
               const specs = FLEET_SPECS[prod.vipLevel] || {
                 seats: '4 Seats • AC Cab',
@@ -415,7 +279,7 @@ export const ProductScreen: React.FC<ProductScreenProps> = ({
           <div className="grid grid-cols-2 gap-3">
             {filteredProducts.map((prod) => {
               const isAvailable = prod.status === 'available';
-              const ownedCount = user.purchasedProducts.filter((p) => p.id === prod.id).length;
+              const ownedCount = user.purchasedProducts.filter((p) => p.productId === prod.id || p.id === prod.id).length;
 
               return (
                 <div

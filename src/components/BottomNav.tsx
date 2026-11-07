@@ -10,8 +10,8 @@ interface BottomNavProps {
 export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onSelectTab }) => {
   const tabs = [
     { id: 'home' as TabType, label: 'Home', icon: Home },
-    { id: 'product' as TabType, label: 'Fleet', icon: Package },
-    { id: 'promoters' as TabType, label: 'Bounty', icon: Flame },
+    { id: 'product' as TabType, label: 'Products', icon: Package },
+    { id: 'promoters' as TabType, label: 'Promoters', icon: Flame },
     { id: 'team' as TabType, label: 'Team', icon: Users },
     { id: 'mine' as TabType, label: 'Mine', icon: User },
   ];

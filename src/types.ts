@@ -42,6 +42,7 @@ export interface TeamMember {
 }
 
 export interface PurchasedProductItem {
+  id?: string;
   instanceId: string;
   productId: string;
   title: string;
@@ -94,6 +95,7 @@ export interface PlatformSettings {
   customerServiceManagerLink?: string;
   customerServiceUsername?: string;
   announcementNotice: string;
+  administrationNotice?: string;
   level1CommissionPct: number;
   level2CommissionPct: number;
   level3CommissionPct: number;
@@ -125,9 +127,10 @@ export interface UserState {
   checkoutOrder?: CheckoutOrder | null;
   claimedPromoterMilestones?: string[];
   creditedByAdmin?: boolean;
+  updatedAt?: number;
 }
 
-export type TabType = 'home' | 'product' | 'orders' | 'team' | 'mine';
+export type TabType = 'home' | 'product' | 'orders' | 'team' | 'promoters' | 'mine';
 export type SubScreen = 
   | null 
   | 'recharge' 

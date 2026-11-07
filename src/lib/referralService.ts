@@ -1,7 +1,7 @@
 import { collection, getDocs, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db, withFirestoreTimeout } from './firebase';
 import { UserState, TeamMember, TransactionRecord, PlatformSettings } from '../types';
-import { getLocalAccounts, saveLocalAccounts } from './authService';
+import { getLocalAccounts, saveLocalAccounts, mergeUserStates } from './authService';
 import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
 import { getCanonicalProduct } from '../utils/productUtils';
@@ -158,16 +158,7 @@ export async function findUserByInviteCode(
       if (directDigitsDoc.exists()) {
         const dData = directDigitsDoc.data() as UserState;
         const mergedState: UserState = localMatch
-          ? {
-              ...localMatch.userState,
-              ...dData,
-              balance: Math.max(Number(localMatch.userState.balance) || 0, Number(dData.balance) || 0),
-              cumulativeIncome: Math.max(
-                Number(localMatch.userState.cumulativeIncome) || 0,
-                Number(dData.cumulativeIncome) || 0
-              ),
-              teamMembers: mergeTeamMembers(localMatch.userState.teamMembers, dData.teamMembers),
-            }
+          ? mergeUserStates(localMatch.userState, dData)
           : { ...dData, id: directDigitsDoc.id };
         return { userState: mergedState, source: 'firestore', keyOrUid: directDigitsDoc.id };
       }
@@ -183,16 +174,7 @@ export async function findUserByInviteCode(
             cleanNigerianPhoneDigits(d.id) === cleanDigits))
       ) {
         const mergedState: UserState = localMatch
-          ? {
-              ...localMatch.userState,
-              ...data,
-              balance: Math.max(Number(localMatch.userState.balance) || 0, Number(data.balance) || 0),
-              cumulativeIncome: Math.max(
-                Number(localMatch.userState.cumulativeIncome) || 0,
-                Number(data.cumulativeIncome) || 0
-              ),
-              teamMembers: mergeTeamMembers(localMatch.userState.teamMembers, data.teamMembers),
-            }
+          ? mergeUserStates(localMatch.userState, data)
           : { ...data, id: d.id };
         return { userState: mergedState, source: 'firestore', keyOrUid: d.id };
       }
@@ -822,24 +804,7 @@ async function collectAllKnownUsers(): Promise<Map<string, UserState>> {
       if (!prev) {
         userByDigits.set(digits, { ...data, id: d.id });
       } else {
-        userByDigits.set(digits, {
-          ...prev,
-          ...data,
-          balance: Math.max(Number(prev.balance) || 0, Number(data.balance) || 0),
-          cumulativeIncome: Math.max(
-            Number(prev.cumulativeIncome) || 0,
-            Number(data.cumulativeIncome) || 0
-          ),
-          purchasedProducts:
-            (data.purchasedProducts?.length || 0) >= (prev.purchasedProducts?.length || 0)
-              ? data.purchasedProducts || []
-              : prev.purchasedProducts || [],
-          teamMembers: mergeTeamMembers(prev.teamMembers, data.teamMembers),
-          records:
-            (data.records?.length || 0) >= (prev.records?.length || 0)
-              ? data.records || []
-              : prev.records || [],
-        });
+        userByDigits.set(digits, mergeUserStates(prev, data));
       }
     });
   } catch {}
@@ -946,29 +911,34 @@ export async function reconcileUserTeamAndCommissions(
       );
       const expectedCommission = Math.round(actualInvested * (pct / 100));
 
-      // Calculate how much commission has already been recorded for this downline at this level
-      const recordedCommFromBuyer = existingRecords
-        .filter(
-          (r) =>
-            r.type === 'commission' &&
-            (r.details?.includes(memberUser.phone) ||
-              (mDigits && r.details?.includes(mDigits)) ||
-              (mDigits && r.id?.includes(mDigits)))
-        )
-        .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+      // Match all commission records that reference this downline member
+      const isRecordFromBuyer = (r: TransactionRecord) => {
+        if (r.type !== 'commission') return false;
+        const dClean = cleanNigerianPhoneDigits(r.details || '');
+        const idClean = cleanNigerianPhoneDigits(r.id || '');
+        if (mDigits && (dClean.includes(mDigits) || idClean.includes(mDigits))) return true;
+        if (memberUser.phone && (r.details?.includes(memberUser.phone) || r.id?.includes(memberUser.phone))) return true;
+        if (memberUser.inviteCode && (r.details?.includes(memberUser.inviteCode) || r.id?.includes(memberUser.inviteCode))) return true;
+        return false;
+      };
 
-      const alreadyCredited = Math.max(existingMember?.commission || 0, recordedCommFromBuyer);
-      const uncreditedDiff = expectedCommission - alreadyCredited;
+      const buyerCommissionRecords = existingRecords.filter(isRecordFromBuyer);
+      const recordedCommFromBuyer = buyerCommissionRecords.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+      const existingMemberComm = Number(existingMember?.commission) || 0;
+      const alreadyCredited = Math.max(existingMemberComm, recordedCommFromBuyer);
 
-      if (uncreditedDiff > 0) {
-        const syncRecId = `comm_sync_l${level}_${mDigits}_${actualInvested}`;
+      // CRITICAL: If ANY commission was already credited or recorded for this buyer,
+      // distributeProductPurchaseCommissions is authoritative and already credited it in real-time.
+      // NEVER credit duplicate commissions via reconcileUserTeamAndCommissions!
+      if (alreadyCredited === 0 && buyerCommissionRecords.length === 0 && actualInvested > 0) {
+        const syncRecId = `comm_sync_l${level}_${mDigits}`;
         if (!existingRecords.some((r) => r.id === syncRecId)) {
-          additionalCommissionToCredit += uncreditedDiff;
+          additionalCommissionToCredit += expectedCommission;
           newCommissionRecords.push({
             id: syncRecId,
             type: 'commission',
             title: level === 1 ? 'Level 1 Referral Commission' : `Level ${level} Team Commission`,
-            amount: uncreditedDiff,
+            amount: expectedCommission,
             status: 'success',
             timestamp: Date.now(),
             details: `${pct}% affiliate commission from ${memberUser.phone}'s fleet investment (₦${actualInvested.toLocaleString()})`,

@@ -55,16 +55,19 @@ import {
   registerAccount, 
   directAdminLogin, 
   signOutUser,
-  normalizePhone,
   getLocalAccounts,
   saveLocalAccounts,
   generateUniqueInviteCode,
   purgeAllMockDataAcrossPlatform,
-  findCloudUserByPhoneOrUid
+  findCloudUserByPhoneOrUid,
+  mergeUserStates,
+  persistUserStateEverywhere,
+  getEffectiveStateTimestamp
 } from './lib/authService';
 import { cleanNigerianPhoneDigits } from './utils/adminAuth';
 import { extractReferralCodeFromUrl } from './utils/referral';
-import { normalizePurchasedProducts, normalizeProductCatalog, getCanonicalProduct, mergePurchasedProducts } from './utils/productUtils';
+import { normalizePurchasedProducts, normalizeProductCatalog, getCanonicalProduct, mergePurchasedProducts, mergeTransactionRecords } from './utils/productUtils';
+import { sanitizeForFirestore } from './utils/firestoreSanitizer';
 import { checkWithdrawalEligibility } from './utils/withdrawalEligibility';
 import { isWithinWithdrawalHours } from './utils/withdrawalHours';
 import { 
@@ -73,7 +76,13 @@ import {
   mergeTeamMembers,
   reconcileUserTeamAndCommissions
 } from './lib/referralService';
-import { saveUserBankAccountInFirebase } from './lib/firestoreService';
+import {
+  saveUserBankAccountInFirebase,
+  saveLocalDepositRecord,
+  saveLocalWithdrawalRecord,
+  adminApproveDepositInFirebase,
+  adminRejectDepositInFirebase,
+} from './lib/firestoreService';
 
 const STORAGE_KEY = 'tesla_app_state_v2';
 
@@ -90,6 +99,7 @@ const INITIAL_USER: UserState = {
   teamMembers: [],
   records: [],
   claimedPromoterMilestones: [],
+  updatedAt: 0,
 };
 
 export default function App() {
@@ -99,28 +109,36 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && parsed.isLoggedIn) {
-          // Purge any lingering mock data from previous sessions
-          parsed.teamMembers = (parsed.teamMembers || []).filter(
+        if (parsed && parsed.isLoggedIn && parsed.phone) {
+          const cleanDigits = cleanNigerianPhoneDigits(parsed.phone);
+          const accounts = getLocalAccounts();
+          const registryUser = accounts[cleanDigits]?.userState;
+          const merged = registryUser ? mergeUserStates(registryUser, parsed) : parsed;
+
+          merged.isLoggedIn = true;
+          merged.teamMembers = (merged.teamMembers || []).filter(
             (tm: any) =>
               !tm.id?.startsWith('tm_adm_') &&
               !tm.id?.startsWith('sim_') &&
               tm.phone !== '+234 8031122334' &&
               tm.phone !== '+234 8149988776'
           );
-          parsed.purchasedProducts = normalizePurchasedProducts(
-            (parsed.purchasedProducts || []).filter((p: any) => !p.instanceId?.startsWith('prod_adm_'))
+          merged.purchasedProducts = normalizePurchasedProducts(
+            (merged.purchasedProducts || []).filter((p: any) => !p.instanceId?.startsWith('prod_adm_'))
           );
-          parsed.records = (parsed.records || []).filter(
-            (r: any) =>
-              !r.id?.startsWith('rec_adm_grant_') &&
-              !r.details?.includes('Pre-seeded') &&
-              r.title !== 'Master Admin System Grant'
+          merged.records = mergeTransactionRecords(
+            (merged.records || []).filter(
+              (r: any) =>
+                !r.id?.startsWith('rec_adm_grant_') &&
+                !r.details?.includes('Pre-seeded') &&
+                r.title !== 'Master Admin System Grant'
+            ),
+            []
           );
-          if (parsed.bankAccount?.accountName === 'Tesla Energy Master Treasury') {
-            parsed.bankAccount = null;
+          if (merged.bankAccount?.accountName === 'Tesla Energy Master Treasury') {
+            merged.bankAccount = null;
           }
-          return parsed;
+          return merged;
         }
       }
     } catch {
@@ -274,16 +292,30 @@ export default function App() {
   useEffect(() => {
     if (user.isLoggedIn && (!user.inviteCode || user.inviteCode.trim() === '')) {
       const fallbackCode = generateUniqueInviteCode(user.phone || '00');
-      setUser((prev) => ({ ...prev, inviteCode: fallbackCode }));
+      setUser((prev) => ({ ...prev, inviteCode: fallbackCode, updatedAt: Date.now() }));
     }
   }, [user.isLoggedIn, user.inviteCode, user.phone]);
 
-  // Sync with localStorage
+  // Sync with both localStorage session AND local accounts registry on every user state change
   useEffect(() => {
     try {
-      if (user.isLoggedIn) {
+      if (user.isLoggedIn && user.phone) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-      } else {
+        const cleanDigits = cleanNigerianPhoneDigits(user.phone);
+        if (cleanDigits && cleanDigits.length >= 7) {
+          const accounts = getLocalAccounts();
+          const existing = accounts[cleanDigits];
+          accounts[cleanDigits] = {
+            phone: `+234 ${cleanDigits}`,
+            digits: cleanDigits,
+            password: user.loginPassword || existing?.password || '123456',
+            userState: user,
+            createdAt: existing?.createdAt || Date.now(),
+            updatedAt: user.updatedAt || Date.now(),
+          };
+          saveLocalAccounts(accounts);
+        }
+      } else if (!user.isLoggedIn) {
         localStorage.removeItem(STORAGE_KEY);
       }
     } catch {
@@ -353,137 +385,87 @@ export default function App() {
 
   // Centralized robust persistence helper: synchronizes across active local session, accounts registry, and all Firestore doc aliases
   const syncUserToFirestoreAndLocal = async (updatedUser: UserState) => {
-    const cleanDigits = cleanNigerianPhoneDigits(updatedUser.phone);
     const now = Date.now();
+    const stampedUser: UserState = {
+      ...updatedUser,
+      purchasedProducts: normalizePurchasedProducts(updatedUser.purchasedProducts),
+      records: mergeTransactionRecords(updatedUser.records, []),
+      updatedAt: Math.max(now, Number(updatedUser.updatedAt) || 0),
+    };
 
-    // 1. Update localStorage active session
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
-      localStorage.setItem('tesla_app_state_v2', JSON.stringify(updatedUser));
-    } catch {}
+    await persistUserStateEverywhere(stampedUser);
 
-    // 2. Update local accounts registry
-    try {
-      const accounts = getLocalAccounts();
-      const matchedKey = Object.keys(accounts).find(
-        (k) => k === cleanDigits || cleanNigerianPhoneDigits(accounts[k].phone) === cleanDigits
-      );
-      if (matchedKey && accounts[matchedKey]) {
-        accounts[matchedKey].userState = updatedUser;
-        accounts[matchedKey].updatedAt = now;
-        saveLocalAccounts(accounts);
-      }
-    } catch {}
-
-    // 3. Update all Firestore document aliases (UID doc, phone digits doc, direct user ID)
-    const docIdsToUpdate = new Set<string>();
-    if (auth.currentUser?.uid) docIdsToUpdate.add(auth.currentUser.uid);
-    if (cleanDigits) docIdsToUpdate.add(cleanDigits);
-    if (updatedUser.id) docIdsToUpdate.add(updatedUser.id);
-
-    for (const dId of docIdsToUpdate) {
+    // Also update custom updatedUser.id doc if different from UID and cleanDigits
+    const cleanDigits = cleanNigerianPhoneDigits(stampedUser.phone);
+    if (
+      stampedUser.id &&
+      stampedUser.id !== cleanDigits &&
+      stampedUser.id !== auth.currentUser?.uid
+    ) {
       try {
         await setDoc(
-          doc(db, 'users', dId),
-          {
-            phone: updatedUser.phone,
-            balance: updatedUser.balance,
-            cumulativeIncome: updatedUser.cumulativeIncome,
-            bankAccount: updatedUser.bankAccount,
-            purchasedProducts: normalizePurchasedProducts(updatedUser.purchasedProducts),
-            teamMembers: updatedUser.teamMembers || [],
-            records: updatedUser.records,
-            fundPin: updatedUser.fundPin,
-            inviteCode: updatedUser.inviteCode,
-            invitedBy: updatedUser.invitedBy,
-            lastCheckInDate: updatedUser.lastCheckInDate || null,
-            claimedPromoterMilestones: updatedUser.claimedPromoterMilestones || [],
-            updatedAt: now,
-          },
+          doc(db, 'users', stampedUser.id),
+          sanitizeForFirestore({
+            ...stampedUser,
+            updatedAt: stampedUser.updatedAt,
+          }),
           { merge: true }
         );
-      } catch (err) {
-        console.warn(`Firestore sync notice for user doc ${dId}:`, err);
-      }
+      } catch {}
     }
   };
 
-  // Firebase Auth State Listener - SYNC IN BACKGROUND WITHOUT LOCKING OUT
+  // Firebase Auth State Listener - SYNC IN BACKGROUND WITHOUT OVERWRITING NEWER LOCAL DATA
   useEffect(() => {
     let isMounted = true;
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (!isMounted) return;
 
-      if (firebaseUser) {
-        try {
-          const userDocRef = doc(db, 'users', firebaseUser.uid);
-          const snap = await withFirestoreTimeout(getDoc(userDocRef), 2000);
-          let cloudData: UserState | null = snap.exists() ? (snap.data() as UserState) : null;
+      try {
+        const digitsFromEmail = firebaseUser?.email
+          ? firebaseUser.email.replace(/^user_/, '').replace(/@.*$/, '')
+          : '';
 
-          const digits = firebaseUser.email ? firebaseUser.email.replace(/^user_/, '').replace(/@.*$/, '') : '';
-          if (digits) {
-            try {
-              const digitsSnap = await withFirestoreTimeout(getDoc(doc(db, 'users', digits)), 2000);
-              if (digitsSnap.exists()) {
-                const dData = digitsSnap.data() as UserState;
-                if (!cloudData) {
-                  cloudData = dData;
-                } else {
-                  cloudData = {
-                    ...cloudData,
-                    ...dData,
-                    balance: (dData.balance || 0) > (cloudData.balance || 0) ? dData.balance : cloudData.balance,
-                    cumulativeIncome: (dData.cumulativeIncome || 0) > (cloudData.cumulativeIncome || 0) ? dData.cumulativeIncome : cloudData.cumulativeIncome,
-                    bankAccount: dData.bankAccount || cloudData.bankAccount || null,
-                    purchasedProducts: mergePurchasedProducts(cloudData.purchasedProducts, dData.purchasedProducts),
-                    teamMembers: mergeTeamMembers(cloudData.teamMembers, dData.teamMembers),
-                    records: (dData.records?.length || 0) > (cloudData.records?.length || 0) ? dData.records : cloudData.records,
-                  };
-                }
-              }
-            } catch {}
+        let localSession: UserState | null = null;
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY);
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            if (parsed && parsed.isLoggedIn) localSession = parsed;
           }
+        } catch {}
+
+        const activeDigits = cleanNigerianPhoneDigits(
+          digitsFromEmail || localSession?.phone || ''
+        );
+
+        if (firebaseUser || (localSession && activeDigits)) {
+          const cloudResult = await findCloudUserByPhoneOrUid(
+            activeDigits,
+            firebaseUser?.uid
+          );
 
           if (isMounted) {
             setUser((prev) => {
-              const merged: UserState = {
+              const baseLocal = prev.isLoggedIn ? prev : localSession;
+              if (!baseLocal && !cloudResult?.data) return prev;
+
+              const merged = mergeUserStates(baseLocal, cloudResult?.data);
+              const finalMerged: UserState = {
                 ...INITIAL_USER,
-                ...prev,
-                ...(cloudData || {}),
+                ...merged,
                 isLoggedIn: true,
-                balance: cloudData?.balance !== undefined ? Math.max(cloudData.balance, prev.balance) : prev.balance,
-                cumulativeIncome: cloudData?.cumulativeIncome !== undefined ? Math.max(cloudData.cumulativeIncome, prev.cumulativeIncome) : prev.cumulativeIncome,
-                bankAccount: cloudData?.bankAccount || prev.bankAccount || null,
-                fundPin: cloudData?.fundPin || prev.fundPin || '123456',
-                teamMembers: mergeTeamMembers(prev.teamMembers, cloudData?.teamMembers),
-                purchasedProducts: mergePurchasedProducts(
-                  prev.purchasedProducts,
-                  cloudData?.purchasedProducts
-                ),
-                claimedPromoterMilestones: cloudData?.claimedPromoterMilestones || prev.claimedPromoterMilestones || [],
-                records: (cloudData?.records && cloudData.records.length >= (prev.records?.length || 0))
-                  ? cloudData.records
-                  : prev.records,
+                phone: merged.phone || (activeDigits ? `+234 ${activeDigits}` : ''),
               };
-              return merged;
+
+              // Backfill Firestore & local registry in background so cloud is never stale
+              persistUserStateEverywhere(finalMerged).catch(() => {});
+              return finalMerged;
             });
           }
-        } catch {
-          // Retain local state when Firestore is offline
         }
-      } else {
-        // No active Firebase user - check if local session exists
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-          try {
-            const parsed = JSON.parse(saved);
-            if (parsed && parsed.isLoggedIn && isMounted) {
-              setUser(parsed);
-            }
-          } catch {
-            // ignore
-          }
-        }
+      } catch {
+        // Retain local state when Firestore is offline
       }
 
       if (isMounted) {
@@ -505,87 +487,70 @@ export default function App() {
     };
   }, []);
 
-  // Real-Time Active Firestore Sync for User Session (Receives Admin Product Allocations, Balance, PIN in Real-Time)
+  // Real-Time Active Firestore Sync for User Session (Safely merges cloud updates without wiping newer local state)
   useEffect(() => {
-    if (!user.isLoggedIn) return;
+    if (!user.isLoggedIn || !user.phone) return;
 
     const cleanDigits = cleanNigerianPhoneDigits(user.phone);
-    const targetDocId = auth.currentUser?.uid || cleanDigits;
-    if (!targetDocId) return;
+    const uid = auth.currentUser?.uid;
+    const docIds = Array.from(new Set([cleanDigits, uid].filter(Boolean) as string[]));
+    if (docIds.length === 0) return;
 
-    const userDocRef = doc(db, 'users', targetDocId);
-    const unsubDoc = onSnapshot(
-      userDocRef,
-      (snap) => {
-        if (snap.exists()) {
-          const cloudData = snap.data() as Partial<UserState>;
-          setUser((prev) => {
-            const remoteProducts = cloudData.purchasedProducts;
-            const remoteRecords = cloudData.records;
-            const remoteBalance = cloudData.balance;
-            const remoteCumulative = cloudData.cumulativeIncome;
-            const remoteBank = cloudData.bankAccount;
-            const remotePin = cloudData.fundPin;
-            const remoteTeam = cloudData.teamMembers;
+    const handleSnapshotData = (cloudData: Partial<UserState>) => {
+      setUser((prev) => {
+        if (!prev.isLoggedIn) return prev;
+        const merged = mergeUserStates(prev, cloudData);
 
-            const productsChanged =
-              remoteProducts &&
-              (remoteProducts.length !== prev.purchasedProducts.length ||
-                JSON.stringify(remoteProducts) !== JSON.stringify(prev.purchasedProducts));
+        const hasChanges =
+          merged.balance !== prev.balance ||
+          merged.cumulativeIncome !== prev.cumulativeIncome ||
+          merged.fundPin !== prev.fundPin ||
+          JSON.stringify(merged.bankAccount) !== JSON.stringify(prev.bankAccount) ||
+          merged.purchasedProducts.length !== prev.purchasedProducts.length ||
+          merged.teamMembers.length !== prev.teamMembers.length ||
+          merged.records.length !== prev.records.length ||
+          JSON.stringify(merged.purchasedProducts) !== JSON.stringify(prev.purchasedProducts) ||
+          JSON.stringify(merged.records) !== JSON.stringify(prev.records) ||
+          JSON.stringify(merged.teamMembers) !== JSON.stringify(prev.teamMembers);
 
-            const balanceChanged = remoteBalance !== undefined && remoteBalance !== prev.balance;
-            const cumulativeChanged =
-              remoteCumulative !== undefined && remoteCumulative !== prev.cumulativeIncome;
-            const pinChanged = remotePin !== undefined && remotePin !== prev.fundPin;
-            const bankChanged =
-              remoteBank !== undefined &&
-              JSON.stringify(remoteBank) !== JSON.stringify(prev.bankAccount);
-            const teamChanged =
-              remoteTeam &&
-              (remoteTeam.length !== prev.teamMembers.length ||
-                JSON.stringify(remoteTeam) !== JSON.stringify(prev.teamMembers));
-            const recordsChanged =
-              remoteRecords &&
-              (remoteRecords.length !== prev.records.length ||
-                JSON.stringify(remoteRecords) !== JSON.stringify(prev.records));
-
-            if (productsChanged || balanceChanged || cumulativeChanged || pinChanged || bankChanged || teamChanged || recordsChanged) {
-              return {
-                ...prev,
-                ...cloudData,
-                balance: remoteBalance !== undefined ? remoteBalance : prev.balance,
-                cumulativeIncome: remoteCumulative !== undefined ? remoteCumulative : prev.cumulativeIncome,
-                bankAccount: remoteBank !== undefined && remoteBank !== null ? remoteBank : prev.bankAccount,
-                fundPin: remotePin || prev.fundPin,
-                teamMembers: mergeTeamMembers(prev.teamMembers, remoteTeam),
-                purchasedProducts: mergePurchasedProducts(
-                  prev.purchasedProducts,
-                  remoteProducts
-                ),
-                claimedPromoterMilestones:
-                  cloudData.claimedPromoterMilestones || prev.claimedPromoterMilestones || [],
-                records: remoteRecords && remoteRecords.length > 0 ? remoteRecords : prev.records,
-                isLoggedIn: true,
-              };
-            }
-            return prev;
-          });
+        // If local state is newer than cloud snapshot, push local state back to cloud
+        const prevTs = getEffectiveStateTimestamp(prev);
+        const cloudTs = getEffectiveStateTimestamp(cloudData);
+        if (prevTs > cloudTs) {
+          persistUserStateEverywhere(merged).catch(() => {});
         }
-      },
-      () => {
-        // Ignore snapshot transport notices in offline/fallback mode
-      }
+
+        return hasChanges ? { ...merged, isLoggedIn: true } : prev;
+      });
+    };
+
+    const unsubs = docIds.map((docId) =>
+      onSnapshot(
+        doc(db, 'users', docId),
+        (snap) => {
+          if (snap.exists()) {
+            handleSnapshotData(snap.data() as Partial<UserState>);
+          }
+        },
+        () => {
+          // Ignore snapshot transport notices in offline/fallback mode
+        }
+      )
     );
 
     // Cross-tab / In-app event listener for real-time updates
     const handleStateUpdated = (e: any) => {
       if (e.detail) {
-        setUser((prev) => ({ ...prev, ...e.detail }));
+        setUser((prev) => mergeUserStates(prev, { ...e.detail, updatedAt: Date.now() }));
       }
     };
     const handleBalanceUpdated = (e: any) => {
       if (e.detail?.balance !== undefined) {
-        setUser((prev) => ({ ...prev, balance: Number(e.detail.balance) }));
+        setUser((prev) => ({
+          ...prev,
+          balance: Number(e.detail.balance),
+          updatedAt: Date.now(),
+        }));
       }
     };
     const handleProductAssigned = (e: any) => {
@@ -599,7 +564,7 @@ export default function App() {
     window.addEventListener('tesla_product_assigned', handleProductAssigned);
 
     return () => {
-      unsubDoc();
+      unsubs.forEach((u) => u());
       window.removeEventListener('tesla_user_state_updated', handleStateUpdated);
       window.removeEventListener('tesla_user_balance_updated', handleBalanceUpdated);
       window.removeEventListener('tesla_product_assigned', handleProductAssigned);
@@ -620,12 +585,12 @@ export default function App() {
         await withFirestoreTimeout(
           setDoc(
             docRef,
-            {
+            sanitizeForFirestore({
               products,
               giftCodes,
               platformSettings,
               updatedAt: Date.now(),
-            },
+            }),
             { merge: true }
           ),
           2500
@@ -649,7 +614,9 @@ export default function App() {
     try {
       const res = await reconcileUserTeamAndCommissions(user, platformSettings);
       if (res.changed) {
-        setUser(res.updatedUser);
+        const syncedUser = { ...res.updatedUser, updatedAt: Date.now() };
+        setUser(syncedUser);
+        syncUserToFirestoreAndLocal(syncedUser);
         if (res.newlyCreditedCommission > 0) {
           showToast(`+₦${res.newlyCreditedCommission.toLocaleString()} referral commission credited to balance!`);
         } else if (showFeedback) {
@@ -683,7 +650,11 @@ export default function App() {
       showToast(`Welcome back, ${authenticatedUser.phone}!`);
       reconcileUserTeamAndCommissions(authenticatedUser, platformSettings)
         .then((res) => {
-          if (res.changed) setUser(res.updatedUser);
+          if (res.changed) {
+            const updated = { ...res.updatedUser, updatedAt: Date.now() };
+            setUser(updated);
+            syncUserToFirestoreAndLocal(updated);
+          }
         })
         .catch(() => {});
     } catch (err: any) {
@@ -725,6 +696,9 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
+    if (user.isLoggedIn && user.phone) {
+      await persistUserStateEverywhere({ ...user, isLoggedIn: false }).catch(() => {});
+    }
     await signOutUser();
     setUser(INITIAL_USER);
     setSubScreen(null);
@@ -740,25 +714,27 @@ export default function App() {
       return;
     }
 
+    const now = Date.now();
     const checkInAmount = 10; // Strictly 10 Naira daily check-in bonus
     const rec: TransactionRecord = {
-      id: `chk_${Date.now()}`,
+      id: `chk_${now}`,
       type: 'bonus',
       title: 'Daily Attendance Reward',
       amount: checkInAmount,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: 'Ola Cabs Daily Attendance Verification Grant (₦10)',
     };
 
     const newBalance = user.balance + checkInAmount;
-    const updatedRecords = [rec, ...user.records];
+    const updatedRecords = mergeTransactionRecords([rec], user.records);
 
     const updatedUserState: UserState = {
       ...user,
       balance: newBalance,
       lastCheckInDate: today,
       records: updatedRecords,
+      updatedAt: now,
     };
 
     setUser(updatedUserState);
@@ -774,141 +750,79 @@ export default function App() {
   };
 
   const handleConfirmCheckoutPayment = async (order: CheckoutOrder, senderBank: string, payeeName: string) => {
+    const now = Date.now();
     const newRecord: TransactionRecord = {
       id: order.orderNo,
       type: 'recharge',
       title: `${order.channel} Deposit`,
       amount: order.amount,
       status: 'pending', // Marked as processing awaiting admin verification
-      timestamp: Date.now(),
+      timestamp: now,
       details: `From ${senderBank} (${payeeName}) • Ref: ${order.orderNo}`,
     };
 
-    const updatedRecords = [newRecord, ...user.records];
-
-    setUser((prev) => ({
-      ...prev,
+    const updatedRecords = mergeTransactionRecords([newRecord], user.records);
+    const updatedUserState: UserState = {
+      ...user,
       records: updatedRecords,
-    }));
+      updatedAt: now,
+    };
 
-    // Update local accounts registry for instant offline & cross-tab availability
+    setUser(updatedUserState);
+    await syncUserToFirestoreAndLocal(updatedUserState);
+
+    // Persist deposit record in local deposit registry and Firebase Firestore
+    const cleanDigits = cleanNigerianPhoneDigits(user.phone);
+    const currentUid = auth.currentUser?.uid || user.id || cleanDigits || `anon_${now}`;
+    const depositPayload = {
+      id: order.orderNo,
+      userId: currentUid,
+      userPhone: user.phone || '07000000000',
+      amount: order.amount,
+      channel: order.channel,
+      senderBank: senderBank || 'Bank Transfer',
+      payeeName: payeeName || 'Unknown Payee',
+      receivingBank: order.bankName,
+      receivingAccount: order.accountNo,
+      receivingAccountName: order.accountName,
+      status: 'pending' as const,
+      timestamp: now,
+      details: `From ${senderBank} (${payeeName})`,
+    };
+
+    saveLocalDepositRecord(depositPayload);
+
     try {
-      const cleanDigits = user.phone.replace(/\D/g, '').slice(-10);
-      const accounts = getLocalAccounts();
-      if (cleanDigits && accounts[cleanDigits]) {
-        accounts[cleanDigits].userState.records = updatedRecords;
-        accounts[cleanDigits].updatedAt = Date.now();
-        saveLocalAccounts(accounts);
-      }
+      await withFirestoreTimeout(
+        setDoc(doc(db, 'deposits', order.orderNo), sanitizeForFirestore(depositPayload)),
+        3000
+      );
     } catch {
-      // non-blocking
-    }
-
-    // Persist deposit record directly into Firebase Firestore
-    try {
-      const currentUid = auth.currentUser?.uid || user.id || `anon_${Date.now()}`;
-      await setDoc(doc(db, 'deposits', order.orderNo), {
-        id: order.orderNo,
-        userId: currentUid,
-        userPhone: user.phone || '07000000000',
-        amount: order.amount,
-        channel: order.channel,
-        senderBank: senderBank || 'Bank Transfer',
-        payeeName: payeeName || 'Unknown Payee',
-        receivingBank: order.bankName,
-        receivingAccount: order.accountNo,
-        receivingAccountName: order.accountName,
-        status: 'pending',
-        timestamp: Date.now(),
-        details: `From ${senderBank} (${payeeName})`,
-      });
-
-      if (auth.currentUser?.uid) {
-        await setDoc(
-          doc(db, 'users', auth.currentUser.uid),
-          {
-            phone: user.phone,
-            records: updatedRecords,
-            updatedAt: Date.now(),
-          },
-          { merge: true }
-        );
-      }
-    } catch (err) {
-      console.warn('Could not persist deposit to Firebase:', err);
+      // Already persisted in user records and local deposit registry
     }
 
     showToast(`Payment of ₦${order.amount.toLocaleString()} submitted for clearance!`);
   };
 
   // Admin deposit approval/rejection callbacks
-  const handleAdminApproveDeposit = (depositId: string, targetUid: string, amount: number) => {
-    const cleanCurrentPhone = user.phone.replace(/\D/g, '').slice(-10);
-    const cleanTargetPhone = (targetUid || '').replace(/\D/g, '').slice(-10);
-    const isTargetUser = 
-      auth.currentUser?.uid === targetUid ||
-      (cleanCurrentPhone && cleanCurrentPhone === cleanTargetPhone) ||
-      user.records.some((r) => r.id === depositId);
-
-    if (isTargetUser) {
-      setUser((prev) => {
-        let found = false;
-        let wasAlreadyApproved = false;
-        const updatedRecords = prev.records.map((r) => {
-          if (r.id === depositId || (r.type === 'recharge' && r.details?.includes(depositId))) {
-            found = true;
-            if (r.status === 'success') {
-              wasAlreadyApproved = true;
-            }
-            return { ...r, status: 'success' as const };
-          }
-          return r;
-        });
-
-        if (wasAlreadyApproved) {
-          return prev;
-        }
-
-        if (!found) {
-          updatedRecords.unshift({
-            id: depositId,
-            type: 'recharge',
-            title: 'Deposit Approved',
-            amount,
-            status: 'success',
-            timestamp: Date.now(),
-            details: `Approved by Treasury Auditor #${depositId.slice(-6)}`,
-          });
-        }
-        return {
-          ...prev,
-          records: updatedRecords,
-        };
-      });
+  const handleAdminApproveDeposit = async (depositId: string, targetUid: string, amount: number) => {
+    try {
+      const res = await adminApproveDepositInFirebase(depositId, targetUid, amount, user.phone);
+      showToast(res.message || `Deposit #${depositId} approved! ₦${amount.toLocaleString()} credited.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Deposit approval failed: ${msg}`);
     }
-    showToast(`Deposit #${depositId} approved! ₦${amount.toLocaleString()} credited.`);
   };
 
-  const handleAdminRejectDeposit = (depositId: string, targetUid: string) => {
-    const cleanCurrentPhone = user.phone.replace(/\D/g, '').slice(-10);
-    const cleanTargetPhone = (targetUid || '').replace(/\D/g, '').slice(-10);
-    const isTargetUser = 
-      auth.currentUser?.uid === targetUid ||
-      (cleanCurrentPhone && cleanCurrentPhone === cleanTargetPhone) ||
-      user.records.some((r) => r.id === depositId);
-
-    if (isTargetUser) {
-      setUser((prev) => {
-        const updatedRecords = prev.records.map((r) =>
-          r.id === depositId ? { ...r, status: 'failed' as const } : r
-        );
-        return {
-          ...prev,
-          records: updatedRecords,
-        };
-      });
+  const handleAdminRejectDeposit = async (depositId: string, targetUid: string) => {
+    try {
+      await adminRejectDepositInFirebase(depositId, targetUid, 'Deposit rejected by auditor', user.phone);
+      showToast(`Deposit #${depositId} marked as rejected.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast(`Deposit rejection failed: ${msg}`);
     }
-    showToast(`Deposit #${depositId} marked as rejected.`);
   };
 
   // Withdraw Handler
@@ -951,84 +865,48 @@ export default function App() {
         : 'Bank Transfer',
     };
 
-    const updatedRecords = [newRecord, ...user.records];
+    const updatedRecords = mergeTransactionRecords([newRecord], user.records);
     const newBalance = Math.max(0, user.balance - amount);
 
-    // 1. Immediately update React state
-    setUser((prev) => ({
-      ...prev,
+    const updatedUser: UserState = {
+      ...user,
       balance: newBalance,
       records: updatedRecords,
-    }));
+      updatedAt: now,
+    };
 
-    // 2. Immediately update localStorage active session
-    try {
-      const updatedUser: UserState = {
-        ...user,
-        balance: newBalance,
-        records: updatedRecords,
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
-      localStorage.setItem('tesla_app_state_v2', JSON.stringify(updatedUser));
-    } catch {}
+    // 1. Immediately update React state and persist everywhere
+    setUser(updatedUser);
+    await syncUserToFirestoreAndLocal(updatedUser);
 
-    // 3. Immediately update local accounts registry
-    try {
-      const accounts = getLocalAccounts();
-      if (cleanDigits && accounts[cleanDigits]) {
-        accounts[cleanDigits].userState = {
-          ...accounts[cleanDigits].userState,
-          balance: newBalance,
-          records: updatedRecords,
-        };
-        accounts[cleanDigits].updatedAt = now;
-        saveLocalAccounts(accounts);
-      }
-    } catch {}
+    // 2. Immediately write to local withdrawals registry and global Firestore withdrawals collection
+    const withdrawalPayload = {
+      id: newRecord.id,
+      userId: targetDocId || `anon_${now}`,
+      userPhone: user.phone || '07000000000',
+      amount,
+      fee,
+      status: 'pending' as const,
+      timestamp: newRecord.timestamp,
+      bankAccount: user.bankAccount || null,
+      details: newRecord.details,
+    };
 
-    // 4. Immediately write to global withdrawals collection
+    saveLocalWithdrawalRecord(withdrawalPayload);
+
     try {
-      await setDoc(doc(db, 'withdrawals', newRecord.id), {
-        id: newRecord.id,
-        userId: targetDocId,
-        userPhone: user.phone,
-        amount,
-        fee,
-        status: 'pending',
-        timestamp: newRecord.timestamp,
-        bankAccount: user.bankAccount || null,
-        details: newRecord.details,
-      });
-    } catch (err) {
-      console.warn('Global withdrawal write notice:', err);
+      await withFirestoreTimeout(
+        setDoc(doc(db, 'withdrawals', newRecord.id), sanitizeForFirestore(withdrawalPayload)),
+        3000
+      );
+    } catch {
+      // Already persisted in user records and local withdrawal registry
     }
 
-    // 5. Immediately update ALL user document references in Firestore with the deducted balance!
-    const docIdsToUpdate = new Set<string>();
-    if (targetDocId) docIdsToUpdate.add(targetDocId);
-    if (cleanDigits) docIdsToUpdate.add(cleanDigits);
-    if (auth.currentUser?.uid) docIdsToUpdate.add(auth.currentUser.uid);
-
-    for (const dId of docIdsToUpdate) {
-      try {
-        await setDoc(
-          doc(db, 'users', dId),
-          {
-            balance: newBalance,
-            records: updatedRecords,
-            updatedAt: now,
-          },
-          { merge: true }
-        );
-      } catch (err) {
-        console.warn(`User withdrawal sync notice for doc ${dId}:`, err);
-      }
-    }
-
-    // 6. Broadcast event so any open screens/tabs immediately register the deduction
+    // 3. Broadcast event so any open screens/tabs immediately register the deduction
     window.dispatchEvent(
       new CustomEvent('tesla_user_state_updated', {
-        detail: { balance: newBalance, records: updatedRecords },
+        detail: { balance: newBalance, records: updatedRecords, updatedAt: now },
       })
     );
     window.dispatchEvent(
@@ -1044,17 +922,17 @@ export default function App() {
   const handleBuyProduct = (product: VIPProduct): boolean => {
     if (user.balance < product.price) return false;
 
+    const now = Date.now();
     const purchaseRecord: TransactionRecord = {
-      id: `buy_${Date.now()}`,
+      id: `buy_${now}`,
       type: 'purchase',
       title: `Activated ${product.vipLevel}`,
       amount: product.price,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: product.title,
     };
 
-    const now = Date.now();
     const canonical = getCanonicalProduct(product.id) || getCanonicalProduct(product.vipLevel) || product;
     const newInstance: PurchasedProductItem = {
       instanceId: `inst_${now}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1070,19 +948,32 @@ export default function App() {
       image: canonical.image,
     };
 
-    const newBalance = user.balance - canonical.price;
+    const newBalance = Math.max(0, Number((user.balance - canonical.price).toFixed(2)));
     const newPurchased = normalizePurchasedProducts([...user.purchasedProducts, newInstance]);
-    const newRecords = [purchaseRecord, ...user.records];
+    const newRecords = mergeTransactionRecords([purchaseRecord], user.records);
 
     const updatedUserState: UserState = {
       ...user,
       balance: newBalance,
       purchasedProducts: newPurchased,
       records: newRecords,
+      updatedAt: now,
     };
 
     setUser(updatedUserState);
     syncUserToFirestoreAndLocal(updatedUserState);
+
+    // Broadcast state and balance updates immediately across app
+    window.dispatchEvent(
+      new CustomEvent('tesla_user_state_updated', {
+        detail: { balance: newBalance, purchasedProducts: newPurchased, records: newRecords, updatedAt: now },
+      })
+    );
+    window.dispatchEvent(
+      new CustomEvent('tesla_user_balance_updated', {
+        detail: { balance: newBalance },
+      })
+    );
 
     // Distribute real multi-tier team commissions (Level 1: 25%, Level 2: 1%, Level 3: 1%)
     distributeProductPurchaseCommissions({
@@ -1147,18 +1038,18 @@ export default function App() {
       }
 
       const incomeRecord: TransactionRecord = {
-        id: `inc_${Date.now()}`,
+        id: `inc_${now}`,
         type: 'income',
         title: 'Daily Ola Cabs Fleet Income',
         amount: totalClaimable,
         status: 'success',
-        timestamp: Date.now(),
+        timestamp: now,
         details: `Daily 12:00 AM Midnight Cab Fleet Yield Claimed (${claimedUnitsCount} Unit${claimedUnitsCount > 1 ? 's' : ''})`,
       };
 
       const newBalance = user.balance + totalClaimable;
       const newCumulative = user.cumulativeIncome + totalClaimable;
-      const newRecords = [incomeRecord, ...user.records];
+      const newRecords = mergeTransactionRecords([incomeRecord], user.records);
 
       const updatedUserState: UserState = {
         ...user,
@@ -1166,6 +1057,7 @@ export default function App() {
         cumulativeIncome: newCumulative,
         purchasedProducts: updatedPurchased,
         records: newRecords,
+        updatedAt: now,
       };
 
       setUser(updatedUserState);
@@ -1213,20 +1105,21 @@ export default function App() {
       return false;
     }
 
+    const now = Date.now();
     const bountyRecord: TransactionRecord = {
-      id: `prom_bounty_${Date.now()}`,
+      id: `prom_bounty_${now}`,
       type: 'bonus',
       title: `Promoter Bounty: ${milestone.title}`,
       amount: milestone.bonusAmount,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: `${milestone.badge} unlocked for inviting ${milestone.requiredActiveInvites} active VIP buyers`,
     };
 
     const newBalance = user.balance + milestone.bonusAmount;
     const newCumulative = user.cumulativeIncome + milestone.bonusAmount;
     const updatedClaimed = [...(user.claimedPromoterMilestones || []), milestone.id];
-    const newRecords = [bountyRecord, ...user.records];
+    const newRecords = mergeTransactionRecords([bountyRecord], user.records);
 
     const updatedUserState: UserState = {
       ...user,
@@ -1234,6 +1127,7 @@ export default function App() {
       cumulativeIncome: newCumulative,
       claimedPromoterMilestones: updatedClaimed,
       records: newRecords,
+      updatedAt: now,
     };
 
     setUser(updatedUserState);
@@ -1245,9 +1139,11 @@ export default function App() {
 
   // Bank Account Save Handler
   const handleSaveBank = async (bank: BankAccount) => {
+    const now = Date.now();
     const updatedUserState: UserState = {
       ...user,
       bankAccount: bank,
+      updatedAt: now,
     };
 
     // 1. Update React User State
@@ -1255,12 +1151,13 @@ export default function App() {
 
     // 2. Persist to local & Firestore docs
     await syncUserToFirestoreAndLocal(updatedUserState);
+    await saveUserBankAccountInFirebase(user.phone, bank).catch(() => {});
 
     // 3. Broadcast real-time update event
     try {
       window.dispatchEvent(
         new CustomEvent('tesla_user_state_updated', {
-          detail: { phone: user.phone, bankAccount: bank },
+          detail: { phone: user.phone, bankAccount: bank, updatedAt: now },
         })
       );
     } catch {}
@@ -1269,12 +1166,25 @@ export default function App() {
   };
 
   // Security Updates
-  const handleUpdatePassword = (_newPass: string) => {
+  const handleUpdatePassword = (newPass: string) => {
+    const updatedUserState: UserState = {
+      ...user,
+      loginPassword: newPass,
+      updatedAt: Date.now(),
+    };
+    setUser(updatedUserState);
+    persistUserStateEverywhere(updatedUserState, newPass).catch(() => {});
     showToast('Login password updated successfully!');
   };
 
   const handleUpdateFundPin = (newPin: string) => {
-    setUser((prev) => ({ ...prev, fundPin: newPin }));
+    const updatedUserState: UserState = {
+      ...user,
+      fundPin: newPin,
+      updatedAt: Date.now(),
+    };
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
     showToast('Withdrawal Fund PIN updated successfully!');
   };
 
@@ -1303,14 +1213,15 @@ export default function App() {
       return { success: false, message: `You have already claimed gift code "${trimmed}".` };
     }
 
+    const now = Date.now();
     const amount = targetCode.amount;
     const rec: TransactionRecord = {
-      id: `gift_${Date.now()}`,
+      id: `gift_${now}`,
       type: 'gift',
       title: `Gift Code Bonus (${targetCode.code})`,
       amount,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: targetCode.description || 'Special Community Reward',
     };
 
@@ -1322,12 +1233,13 @@ export default function App() {
     );
 
     const newBalance = user.balance + amount;
-    const updatedRecords = [rec, ...user.records];
+    const updatedRecords = mergeTransactionRecords([rec], user.records);
 
     const updatedUserState: UserState = {
       ...user,
       balance: newBalance,
       records: updatedRecords,
+      updatedAt: now,
     };
 
     setUser(updatedUserState);
@@ -1357,33 +1269,40 @@ export default function App() {
 
   // Master Admin Handlers
   const handleAdminUpdateBalance = (newBalance: number) => {
+    const now = Date.now();
     const diff = newBalance - user.balance;
     const rec: TransactionRecord = {
-      id: `adm_${Date.now()}`,
+      id: `adm_${now}`,
       type: diff >= 0 ? 'bonus' : 'purchase',
       title: 'Master Console Liquidity Adjustment',
       amount: Math.abs(diff),
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: `Balance altered by Administrator to ₦${newBalance.toLocaleString()}`,
     };
 
-    setUser((prev) => ({
-      ...prev,
+    const updatedUserState: UserState = {
+      ...user,
       balance: newBalance,
       creditedByAdmin: true,
-      records: [rec, ...prev.records],
-    }));
+      records: mergeTransactionRecords([rec], user.records),
+      updatedAt: now,
+    };
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
     showToast(`Admin: Account balance set to ₦ ${newBalance.toLocaleString()}`);
   };
 
   const handleAdminApproveWithdrawal = (recordId: string) => {
-    setUser((prev) => ({
-      ...prev,
-      records: prev.records.map((r) =>
-        r.id === recordId ? { ...r, status: 'success' } : r
+    const updatedUserState: UserState = {
+      ...user,
+      records: user.records.map((r) =>
+        r.id === recordId ? { ...r, status: 'success' as const } : r
       ),
-    }));
+      updatedAt: Date.now(),
+    };
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
     showToast('Admin: Withdrawal approved and marked as Success');
   };
 
@@ -1394,14 +1313,15 @@ export default function App() {
     // Only refund if not already marked failed
     const shouldRefund = targetRecord.status !== 'failed';
     const refundAmount = shouldRefund ? targetRecord.amount : 0;
+    const now = Date.now();
 
     const refundRec: TransactionRecord | null = shouldRefund ? {
-      id: `ref_${Date.now()}`,
+      id: `ref_${now}`,
       type: 'bonus',
       title: 'Withdrawal Reversal / Refund',
       amount: refundAmount,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: `Reversal of withdrawal request #${recordId.slice(-6)}`,
     } : null;
 
@@ -1413,26 +1333,15 @@ export default function App() {
     ];
     const newBalance = user.balance + refundAmount;
 
-    setUser((prev) => ({
-      ...prev,
+    const updatedUserState: UserState = {
+      ...user,
       balance: newBalance,
       records: updatedRecords,
-    }));
+      updatedAt: now,
+    };
 
-    try {
-      const cleanDigits = user.phone.replace(/\D/g, '').slice(-10);
-      const accounts = getLocalAccounts();
-      if (accounts[cleanDigits]) {
-        accounts[cleanDigits].userState = {
-          ...accounts[cleanDigits].userState,
-          balance: newBalance,
-          records: updatedRecords,
-        };
-        saveLocalAccounts(accounts);
-      }
-    } catch {
-      // ignore
-    }
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
 
     showToast(shouldRefund ? 'Admin: Withdrawal reversed. ₦' + refundAmount.toLocaleString() + ' refunded to wallet' : 'Admin: Withdrawal status updated to reversed.');
   };
@@ -1448,22 +1357,26 @@ export default function App() {
   };
 
   const handleAdminAddManualBonus = (amount: number, reason: string) => {
+    const now = Date.now();
     const bonusRec: TransactionRecord = {
-      id: `adm_bonus_${Date.now()}`,
+      id: `adm_bonus_${now}`,
       type: 'bonus',
       title: reason || 'Special Incentive Bonus',
       amount,
       status: 'success',
-      timestamp: Date.now(),
+      timestamp: now,
       details: 'Credited directly from Master Console',
     };
 
-    setUser((prev) => ({
-      ...prev,
-      balance: prev.balance + amount,
+    const updatedUserState: UserState = {
+      ...user,
+      balance: user.balance + amount,
       creditedByAdmin: true,
-      records: [bonusRec, ...prev.records],
-    }));
+      records: mergeTransactionRecords([bonusRec], user.records),
+      updatedAt: now,
+    };
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
     showToast(`Admin: ₦ ${amount.toLocaleString()} bonus credited to member!`);
   };
 
@@ -1486,7 +1399,13 @@ export default function App() {
   };
 
   const handleAdminResetFundPin = (newPin: string) => {
-    setUser((prev) => ({ ...prev, fundPin: newPin }));
+    const updatedUserState: UserState = {
+      ...user,
+      fundPin: newPin,
+      updatedAt: Date.now(),
+    };
+    setUser(updatedUserState);
+    syncUserToFirestoreAndLocal(updatedUserState);
   };
 
   const handleAdminAssignProduct = (product: VIPProduct, targetPhone?: string) => {
@@ -1523,7 +1442,8 @@ export default function App() {
       const updatedUserState: UserState = {
         ...user,
         purchasedProducts: normalizePurchasedProducts([...user.purchasedProducts, newInstance]),
-        records: [grantRec, ...user.records],
+        records: mergeTransactionRecords([grantRec], user.records),
+        updatedAt: now,
       };
       setUser(updatedUserState);
       syncUserToFirestoreAndLocal(updatedUserState);
