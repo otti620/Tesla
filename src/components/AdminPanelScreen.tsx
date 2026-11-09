@@ -1823,7 +1823,7 @@ export const AdminPanelScreen: React.FC<AdminPanelScreenProps> = ({
                 <div className="bg-neutral-900 border border-neutral-800 rounded-2xl p-4">
                   <div className="text-xs uppercase font-bold text-neutral-400">Total User Balances</div>
                   <div className="text-2xl font-black text-emerald-400 mt-1">
-                    ₦ {cloudData?.stats.totalUserBalances.toLocaleString() || user.balance.toLocaleString()}
+                    ₦ {(cloudData?.stats.totalUserBalances ?? allUsersList.reduce((acc, u) => acc + (u.balance || 0), 0)).toLocaleString()}
                   </div>
                   <div className="text-xs text-neutral-400 mt-1">Across all registered members</div>
                 </div>

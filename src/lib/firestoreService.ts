@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore';
 import { db, auth, withFirestoreTimeout } from './firebase';
 import { getLocalAccounts, saveLocalAccounts } from './authService';
-import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
+import { cleanNigerianPhoneDigits, isAdminUser } from '../utils/adminAuth';
 import { 
   UserState, 
   VIPProduct, 
@@ -328,7 +328,37 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
   if (usersResult.status === 'fulfilled') {
     usersResult.value.forEach((d) => {
       const data = d.data() as UserState;
-      const cleanP = cleanNigerianPhoneDigits(data.phone || d.id) || d.id;
+      // Filter out phantom/anonymous test documents without valid phone digits
+      if (d.id.startsWith('anon_') || !data.phone) {
+        return;
+      }
+      const cleanP = cleanNigerianPhoneDigits(data.phone || d.id);
+      if (!cleanP || cleanP.length < 8) {
+        return;
+      }
+
+      // Sanitize bank account: clear admin bank if copied to non-admin user
+      let resolvedBank = data.bankAccount || null;
+      if (
+        resolvedBank &&
+        !isAdminUser(cleanP) &&
+        (resolvedBank.accountNumber === '8689584843' ||
+          resolvedBank.accountName?.includes('SETTLE LESS') ||
+          resolvedBank.accountName === 'Tesla Energy Master Treasury')
+      ) {
+        resolvedBank = null;
+      }
+
+      const existingUser = userMap.get(cleanP);
+      const existingTs = existingUser ? Number((existingUser as any).updatedAt) || 0 : 0;
+      const currentTs = Number(data.updatedAt) || 0;
+
+      // If document already exists for this phone, keep the more recently updated document
+      if (existingUser && existingTs > currentTs) {
+        collectUserRecordsToMaps(d.id, data);
+        return;
+      }
+
       const userRec: CloudUserRecord = {
         uid: d.id,
         phone: data.phone || (d.id.startsWith('+') || d.id.startsWith('0') ? data.phone || d.id : `+234 ${cleanP}`),
@@ -337,7 +367,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
         inviteCode: data.inviteCode || 'N/A',
         invitedBy: data.invitedBy || null,
         fundPin: data.fundPin || '123456',
-        bankAccount: data.bankAccount || null,
+        bankAccount: resolvedBank,
         purchasedProducts: normalizePurchasedProducts(data.purchasedProducts),
         teamMembers: data.teamMembers || [],
         records: data.records || [],
@@ -355,6 +385,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
               )
           ),
       };
+      (userRec as any).updatedAt = currentTs;
       userMap.set(cleanP, userRec);
       collectUserRecordsToMaps(d.id, data);
     });
@@ -363,7 +394,7 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
   usersList.push(...Array.from(userMap.values()));
 
   // Ensure Master Admin accounts are listed
-  const adminNumbers = ['7077599057', '9011711470'];
+  const adminNumbers = ['7077599057', '9011711470', '8055530558'];
   adminNumbers.forEach((admDigits) => {
     const phone = `+234 ${admDigits}`;
     if (!usersList.some((u) => cleanNigerianPhoneDigits(u.phone) === admDigits || u.uid === admDigits)) {
@@ -372,7 +403,12 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
         phone,
         balance: 0,
         cumulativeIncome: 0,
-        inviteCode: admDigits === '7077599057' ? 'TSLROOT1' : 'TSLROOT2',
+        inviteCode:
+          admDigits === '7077599057'
+            ? 'TSLROOT1'
+            : admDigits === '8055530558'
+            ? 'TSLROOT3'
+            : 'TSLROOT2',
         invitedBy: null,
         fundPin: '123456',
         bankAccount: null,
@@ -494,15 +530,18 @@ export async function fetchAdminPlatformDataOnDemand(): Promise<AdminPlatformDat
     }
   }
 
-  // Compile all withdrawal requests
-  const withdrawals = Array.from(withdrawalMap.values()).sort(
-    (a, b) => b.timestamp - a.timestamp
-  );
+  // Cutoff timestamp for Nov 6, 2026 (00:00:00 UTC)
+  const cutoffNov62026 = new Date('2026-11-06T00:00:00Z').getTime();
 
-  // Compile all deposit requests
-  const deposits = Array.from(depositMap.values()).sort(
-    (a, b) => b.timestamp - a.timestamp
-  );
+  // Compile all withdrawal requests (strictly on or after Nov 6, 2026)
+  const withdrawals = Array.from(withdrawalMap.values())
+    .filter((w) => (Number(w.timestamp) || 0) >= cutoffNov62026)
+    .sort((a, b) => b.timestamp - a.timestamp);
+
+  // Compile all deposit requests (strictly on or after Nov 6, 2026)
+  const deposits = Array.from(depositMap.values())
+    .filter((d) => (Number(d.timestamp) || 0) >= cutoffNov62026)
+    .sort((a, b) => b.timestamp - a.timestamp);
 
   // Compute Platform Metrics
   const totalUsersCount = usersList.length;

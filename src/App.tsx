@@ -435,11 +435,20 @@ export default function App() {
           }
         } catch {}
 
+        // STRICT ACTIVE DIGITS RESOLUTION:
+        // When firebaseUser is present, active digits MUST come from firebaseUser's email.
+        // Never fall back to another user's session from localStorage when an authenticated user is present.
         const activeDigits = cleanNigerianPhoneDigits(
-          digitsFromEmail || localSession?.phone || ''
+          digitsFromEmail || (firebaseUser ? '' : localSession?.phone || '')
         );
 
-        if (firebaseUser || (localSession && activeDigits)) {
+        if (!activeDigits) {
+          if (!firebaseUser && !localSession) {
+            if (isMounted) {
+              setUser(INITIAL_USER);
+            }
+          }
+        } else {
           const cloudResult = await findCloudUserByPhoneOrUid(
             activeDigits,
             firebaseUser?.uid
@@ -447,15 +456,49 @@ export default function App() {
 
           if (isMounted) {
             setUser((prev) => {
-              const baseLocal = prev.isLoggedIn ? prev : localSession;
-              if (!baseLocal && !cloudResult?.data) return prev;
+              // STRICT PHONE MATCH: Only use prev or localSession if its phone number matches activeDigits!
+              const prevDigits = cleanNigerianPhoneDigits(prev.phone);
+              const sessionDigits = cleanNigerianPhoneDigits(localSession?.phone);
+
+              let baseLocal: UserState | null = null;
+              if (prev.isLoggedIn && prevDigits === activeDigits) {
+                baseLocal = prev;
+              } else if (localSession?.isLoggedIn && sessionDigits === activeDigits) {
+                baseLocal = localSession;
+              } else {
+                const accounts = getLocalAccounts();
+                if (accounts[activeDigits]?.userState) {
+                  baseLocal = accounts[activeDigits].userState;
+                }
+              }
+
+              if (!baseLocal && !cloudResult?.data) {
+                // Freshly registered user in Firebase Auth with no cloud doc yet
+                const isAdm = isAdminUser(activeDigits);
+                const fresh: UserState = {
+                  ...INITIAL_USER,
+                  isLoggedIn: true,
+                  phone: `+234 ${activeDigits}`,
+                  inviteCode: isAdm
+                    ? activeDigits === '7077599057'
+                      ? 'TSLROOT1'
+                      : activeDigits === '8055530558'
+                      ? 'TSLROOT3'
+                      : 'TSLROOT2'
+                    : generateUniqueInviteCode(activeDigits),
+                  balance: isAdm ? 0 : 1100,
+                  updatedAt: Date.now(),
+                };
+                persistUserStateEverywhere(fresh).catch(() => {});
+                return fresh;
+              }
 
               const merged = mergeUserStates(baseLocal, cloudResult?.data);
               const finalMerged: UserState = {
                 ...INITIAL_USER,
                 ...merged,
                 isLoggedIn: true,
-                phone: merged.phone || (activeDigits ? `+234 ${activeDigits}` : ''),
+                phone: merged.phone || `+234 ${activeDigits}`,
               };
 
               // Backfill Firestore & local registry in background so cloud is never stale
@@ -492,13 +535,25 @@ export default function App() {
     if (!user.isLoggedIn || !user.phone) return;
 
     const cleanDigits = cleanNigerianPhoneDigits(user.phone);
-    const uid = auth.currentUser?.uid;
+    const currentUserEmail = auth.currentUser?.email || '';
+    const isCurrentAuthUserThisPhone =
+      Boolean(auth.currentUser?.uid) &&
+      (currentUserEmail.includes(`user_${cleanDigits}@`) ||
+        cleanNigerianPhoneDigits(currentUserEmail) === cleanDigits);
+    const uid = isCurrentAuthUserThisPhone ? auth.currentUser?.uid : null;
     const docIds = Array.from(new Set([cleanDigits, uid].filter(Boolean) as string[]));
     if (docIds.length === 0) return;
 
     const handleSnapshotData = (cloudData: Partial<UserState>) => {
       setUser((prev) => {
         if (!prev.isLoggedIn) return prev;
+        const prevDigits = cleanNigerianPhoneDigits(prev.phone);
+        const cloudDigits = cleanNigerianPhoneDigits(cloudData.phone);
+        // STRICT USER ISOLATION: Discard snapshots that belong to a different phone
+        if (cloudDigits && prevDigits && cloudDigits !== prevDigits) {
+          return prev;
+        }
+
         const merged = mergeUserStates(prev, cloudData);
 
         const hasChanges =
@@ -642,6 +697,9 @@ export default function App() {
   // Auth Handlers: Multi-Tier Resilient Authentication (Admin Root -> Firebase -> Local Registry)
   const handleLogin = async (phone: string, password: string) => {
     try {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
       const authenticatedUser = await loginAccount(phone, password);
       setUser(authenticatedUser);
       setSubScreen(null);
@@ -665,6 +723,9 @@ export default function App() {
 
   const handleRegister = async (phone: string, password: string, inviteCode: string) => {
     try {
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {}
       const codeToUse = (inviteCode || referralCodeFromUrl || 'P5ZP4S').trim().toUpperCase();
       const newUser = await registerAccount(phone, password, codeToUse, platformSettings);
       // Link real user to upline's downline tree across local state and Firestore (LV1, LV2, LV3)

@@ -42,11 +42,16 @@ export function normalizePhone(rawPhone: string) {
 export function createAdminDefaultState(last10: string): UserState {
   const phone = `+234 ${last10}`;
   return {
-    isLoggedIn: true,
+    isLoggedIn: false,
     phone,
     balance: 0.0,
     cumulativeIncome: 0.0,
-    inviteCode: last10 === '7077599057' ? 'TSLROOT1' : 'TSLROOT2',
+    inviteCode:
+      last10 === '7077599057'
+        ? 'TSLROOT1'
+        : last10 === '8055530558'
+        ? 'TSLROOT3'
+        : 'TSLROOT2',
     bankAccount: null,
     fundPin: '123456',
     loginPassword: '123456',
@@ -54,6 +59,7 @@ export function createAdminDefaultState(last10: string): UserState {
     purchasedProducts: [],
     teamMembers: [],
     records: [],
+    claimedPromoterMilestones: [],
     updatedAt: 0,
   };
 }
@@ -159,10 +165,34 @@ export function mergeUserStates(
   stateB?: Partial<UserState> | null
 ): UserState {
   if (!stateA && !stateB) {
-    return createAdminDefaultState('0000000000');
+    return {
+      isLoggedIn: false,
+      phone: '',
+      balance: 0.0,
+      cumulativeIncome: 0.0,
+      inviteCode: '',
+      bankAccount: null,
+      fundPin: '',
+      lastCheckInDate: null,
+      purchasedProducts: [],
+      teamMembers: [],
+      records: [],
+      claimedPromoterMilestones: [],
+      updatedAt: 0,
+    };
   }
   if (!stateA) return stateB as UserState;
   if (!stateB) return stateA as UserState;
+
+  // STRICT PHONE ISOLATION:
+  // Never merge two states if their clean Nigerian phone digits differ.
+  const digitsA = cleanNigerianPhoneDigits(stateA.phone);
+  const digitsB = cleanNigerianPhoneDigits(stateB.phone);
+  if (digitsA && digitsB && digitsA !== digitsB) {
+    const tsA = getEffectiveStateTimestamp(stateA);
+    const tsB = getEffectiveStateTimestamp(stateB);
+    return (tsB >= tsA ? stateB : stateA) as UserState;
+  }
 
   const tsA = getEffectiveStateTimestamp(stateA);
   const tsB = getEffectiveStateTimestamp(stateB);
@@ -357,11 +387,17 @@ export async function persistUserStateEverywhere(
     } catch {}
   }
 
-  // 3. Persist sanitized payload to Firestore under both `users/{last10}` and `users/{uid}`
+  // 3. Persist sanitized payload to Firestore under `users/{last10}` and (if UID matches) `users/{uid}`
   const uid = auth.currentUser?.uid;
+  const currentUserEmail = auth.currentUser?.email || '';
+  const isUidMatchingUser =
+    Boolean(uid) &&
+    (currentUserEmail.includes(`user_${last10}@`) ||
+      cleanNigerianPhoneDigits(currentUserEmail) === last10);
+
   const sanitizedPayload = sanitizeForFirestore({
     ...finalState,
-    ...(uid ? { firebaseUid: uid } : {}),
+    ...(isUidMatchingUser && uid ? { firebaseUid: uid } : {}),
     updatedAt: finalState.updatedAt || now,
   });
 
@@ -374,7 +410,7 @@ export async function persistUserStateEverywhere(
       ).catch(() => {})
     );
   }
-  if (uid && uid !== last10) {
+  if (isUidMatchingUser && uid && uid !== last10) {
     writes.push(
       withFirestoreTimeout(
         setDoc(doc(db, 'users', uid), sanitizedPayload, { merge: true }),
@@ -406,7 +442,12 @@ export async function findCloudUserByPhoneOrUid(
     try {
       const snap = await withFirestoreTimeout(getDoc(doc(db, 'users', firebaseUid)), 2500);
       if (snap.exists()) {
-        uidDoc = { data: snap.data() as UserState, docId: snap.id };
+        const u = snap.data() as UserState;
+        const uDigits = cleanNigerianPhoneDigits(u.phone);
+        // Only accept uidDoc if cleanDigits is empty OR matches uDigits
+        if (!cleanDigits || !uDigits || uDigits === cleanDigits) {
+          uidDoc = { data: u, docId: snap.id };
+        }
       }
     } catch {}
   }
@@ -422,10 +463,16 @@ export async function findCloudUserByPhoneOrUid(
   }
 
   if (uidDoc && phoneDoc) {
-    return {
-      data: mergeUserStates(uidDoc.data, phoneDoc.data),
-      docId: phoneDoc.docId,
-    };
+    const digitsU = cleanNigerianPhoneDigits(uidDoc.data.phone);
+    const digitsP = cleanNigerianPhoneDigits(phoneDoc.data.phone);
+    if (!digitsU || !digitsP || digitsU === digitsP) {
+      return {
+        data: mergeUserStates(uidDoc.data, phoneDoc.data),
+        docId: phoneDoc.docId,
+      };
+    }
+    // If they differ, phoneDoc matching cleanDigits strictly wins
+    return phoneDoc;
   }
   if (phoneDoc) return phoneDoc;
   if (uidDoc) return uidDoc;
@@ -572,7 +619,7 @@ export function getLocalAccounts(): Record<string, LocalAccount> {
   }
 
   // Pre-seed Master Admin accounts if missing (clean state, zero mock referrals)
-  const adminNumbers = ['7077599057', '9011711470'];
+  const adminNumbers = ['7077599057', '9011711470', '8055530558'];
   let modified = false;
 
   adminNumbers.forEach((admDigits) => {
@@ -582,7 +629,7 @@ export function getLocalAccounts(): Record<string, LocalAccount> {
         phone: adminState.phone,
         digits: admDigits,
         password: '123456',
-        userState: adminState,
+        userState: { ...adminState, isLoggedIn: false },
         createdAt: Date.now() - 86400000 * 30,
         updatedAt: 0,
       };
@@ -668,8 +715,15 @@ export async function registerAccount(
   const cleanInviterCode = inviteCode ? inviteCode.trim().toUpperCase() : 'P5ZP4S';
   let finalUserState: UserState;
 
-  if (cloudExisting || (localPrev && !isAdmin)) {
-    const merged = mergeUserStates(localPrev, cloudExisting?.data);
+  const isCloudBelonging =
+    Boolean(cloudExisting?.data?.phone) &&
+    cleanNigerianPhoneDigits(cloudExisting?.data?.phone) === last10;
+  const isLocalBelonging =
+    Boolean(localPrev?.phone) &&
+    cleanNigerianPhoneDigits(localPrev?.phone) === last10;
+
+  if (isCloudBelonging || (isLocalBelonging && !isAdmin)) {
+    const merged = mergeUserStates(isLocalBelonging ? localPrev : null, isCloudBelonging ? cloudExisting?.data : null);
     finalUserState = {
       ...merged,
       phone: display,
@@ -695,12 +749,14 @@ export async function registerAccount(
     const userOwnInviteCode = isAdmin
       ? last10 === '7077599057'
         ? 'TSLROOT1'
+        : last10 === '8055530558'
+        ? 'TSLROOT3'
         : 'TSLROOT2'
       : generateUniqueInviteCode(last10);
 
     finalUserState = isAdmin
       ? {
-          ...mergeUserStates(createAdminDefaultState(last10), localPrev),
+          ...mergeUserStates(createAdminDefaultState(last10), isLocalBelonging ? localPrev : null),
           phone: display,
           isLoggedIn: true,
           loginPassword: password,
@@ -720,6 +776,7 @@ export async function registerAccount(
           purchasedProducts: [],
           teamMembers: [],
           records: signupBonus > 0 ? [welcomeRecord] : [],
+          claimedPromoterMilestones: [],
           updatedAt: now,
         };
   }
@@ -806,6 +863,7 @@ export async function loginAccount(rawPhone: string, password: string): Promise<
   if (isAdmin) {
     const adminState: UserState = {
       ...createAdminDefaultState(last10),
+      isLoggedIn: true,
       loginPassword: password || '123456',
       updatedAt: Date.now(),
     };

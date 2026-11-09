@@ -15,9 +15,9 @@ export const CustomerServiceScreen: React.FC<CustomerServiceScreenProps> = ({
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
-  const groupUrl = platformSettings?.telegramGroupLink || platformSettings?.telegramLink || 'https://t.me/teslainvestment456';
-  const managerUrl = platformSettings?.customerServiceManagerLink || 'https://t.me/sallyservice4';
-  const managerHandle = platformSettings?.customerServiceUsername || 'sallyservice4';
+  const groupUrl = platformSettings?.telegramGroupLink || platformSettings?.telegramLink || 'https://t.me/+MtoC8WxfOyY2MTNk';
+  const managerUrl = platformSettings?.customerServiceManagerLink || 'https://t.me/Abigail_faith56';
+  const managerHandle = platformSettings?.customerServiceUsername || 'Abigail_faith56';
 
   const handleCopy = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
@@ -66,14 +66,14 @@ export const CustomerServiceScreen: React.FC<CustomerServiceScreenProps> = ({
         {/* Primary Contact Options */}
         <div className="bg-white rounded-2xl overflow-hidden shadow-xs border border-neutral-200 divide-y divide-neutral-100">
           
-          {/* Customer Service Manager (Sally) */}
+          {/* Customer Service Manager (Abigail) */}
           <div className="p-4 hover:bg-neutral-50/80 transition group">
             <div className="flex items-center justify-between gap-3">
               <a
                 href={managerUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                onClick={() => onOpenTelegram('Customer Service Manager (Sally)', managerUrl)}
+                onClick={() => onOpenTelegram('Customer Service Manager (Abigail)', managerUrl)}
                 className="flex items-center gap-3.5 flex-1 min-w-0"
               >
                 <div className="w-12 h-12 rounded-2xl bg-neutral-950 border border-[#a3e635]/40 flex items-center justify-center text-[#a3e635] shadow-md shrink-0 group-hover:scale-105 transition-transform">
@@ -90,7 +90,7 @@ export const CustomerServiceScreen: React.FC<CustomerServiceScreenProps> = ({
                   </div>
                   <p className="text-xs font-semibold text-[#0088cc] truncate flex items-center gap-1 mt-0.5">
                     <MessageSquare className="w-3.5 h-3.5" />
-                    @{managerHandle} (Sally)
+                    @{managerHandle} (Abigail)
                   </p>
                   <p className="text-[11px] text-neutral-500 truncate mt-0.5">
                     Fast 1-on-1 private chat, recharge & withdrawal verification
@@ -146,7 +146,7 @@ export const CustomerServiceScreen: React.FC<CustomerServiceScreenProps> = ({
                     </span>
                   </div>
                   <p className="text-xs font-semibold text-[#0088cc] truncate mt-0.5">
-                    t.me/teslainvestment456
+                    {groupUrl.replace(/^https?:\/\//, '')}
                   </p>
                   <p className="text-[11px] text-neutral-500 truncate mt-0.5">
                     Daily bonus events, community discussions & fleet yield proof
@@ -202,7 +202,7 @@ export const CustomerServiceScreen: React.FC<CustomerServiceScreenProps> = ({
                     </span>
                   </div>
                   <p className="text-xs font-semibold text-[#0088cc] truncate mt-0.5">
-                    t.me/teslainvestment456
+                    {groupUrl.replace(/^https?:\/\//, '')}
                   </p>
                   <p className="text-[11px] text-neutral-500 truncate mt-0.5">
                     Official announcements, maintenance schedules & dividend updates
@@ -241,11 +241,11 @@ export const CustomerServiceScreen: React.FC<CustomerServiceScreenProps> = ({
           <ol className="space-y-2 text-xs text-neutral-600 leading-relaxed">
             <li className="flex items-start gap-1.5">
               <span className="font-bold text-[#4d7c0f]">1.</span>
-              <span>For 1-on-1 private inquiry and fast resolution, message Manager Sally directly on Telegram (<strong className="text-neutral-800 font-semibold">@sallyservice4</strong>).</span>
+              <span>For 1-on-1 private inquiry and fast resolution, message Manager Abigail directly on Telegram (<strong className="text-neutral-800 font-semibold">@{managerHandle}</strong>).</span>
             </li>
             <li className="flex items-start gap-1.5">
               <span className="font-bold text-[#4d7c0f]">2.</span>
-              <span>Join our official community group (<strong className="text-neutral-800 font-semibold">t.me/teslainvestment456</strong>) for live member discussions, withdrawal proofs, and daily bonus codes.</span>
+              <span>Join our official community group (<strong className="text-neutral-800 font-semibold">{groupUrl.replace(/^https?:\/\//, '')}</strong>) for live member discussions, withdrawal proofs, and daily bonus codes.</span>
             </li>
             <li className="flex items-start gap-1.5">
               <span className="font-bold text-[#4d7c0f]">3.</span>

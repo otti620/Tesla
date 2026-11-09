@@ -143,9 +143,9 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
   minWithdrawal: 800,
   telegramLink: 'https://t.me/+MtoC8WxfOyY2MTNk',
   telegramGroupLink: 'https://t.me/+MtoC8WxfOyY2MTNk',
-  customerServiceManagerLink: 'https://t.me/+MtoC8WxfOyY2MTNk',
-  customerServiceUsername: '+MtoC8WxfOyY2MTNk',
-  announcementNotice: 'Welcome to Ola Cabs (OlaCabs) Mobility Fleet. Join our official Telegram Group (https://t.me/+MtoC8WxfOyY2MTNk) for daily giveaways and VIP community updates.',
+  customerServiceManagerLink: 'https://t.me/Abigail_faith56',
+  customerServiceUsername: 'Abigail_faith56',
+  announcementNotice: 'Welcome to Ola Cabs (OlaCabs) Mobility Fleet. Join our official Telegram Group (https://t.me/+MtoC8WxfOyY2MTNk) for daily giveaways and VIP community updates. For member support, reach our Customer Service Manager Abigail directly on Telegram (t.me/Abigail_faith56).',
   level1CommissionPct: 25,
   level2CommissionPct: 1,
   level3CommissionPct: 1,
@@ -162,7 +162,7 @@ export const INITIAL_PLATFORM_SETTINGS: PlatformSettings = {
 export const PLATFORM_ANNOUNCEMENTS = [
   'Welcome to Ola Cabs (OlaCabs) — ₦1,100 Welcome Bonus credited upon registration',
   'Official Telegram Group: Join https://t.me/+MtoC8WxfOyY2MTNk for exclusive bonuses and events',
-  'Customer Support: Reach Customer Service Manager at https://t.me/+MtoC8WxfOyY2MTNk',
+  'Customer Support: Reach Customer Service Manager Abigail at t.me/Abigail_faith56',
   'Official Withdrawal Schedule: Mon–Sat 9:00 AM – 5:00 PM | Sundays strictly 2:00 PM – 5:00 PM',
   'Affiliate Referral Network: Earn up to 25% instant commission on team cab fleet activations',
 ];

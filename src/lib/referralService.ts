@@ -4,7 +4,7 @@ import { UserState, TeamMember, TransactionRecord, PlatformSettings } from '../t
 import { getLocalAccounts, saveLocalAccounts, mergeUserStates } from './authService';
 import { cleanNigerianPhoneDigits } from '../utils/adminAuth';
 import { sanitizeForFirestore } from '../utils/firestoreSanitizer';
-import { getCanonicalProduct } from '../utils/productUtils';
+import { getCanonicalProduct, mergeTransactionRecords } from '../utils/productUtils';
 import { INITIAL_PLATFORM_SETTINGS } from '../data/initialData';
 
 /**
@@ -898,6 +898,10 @@ export async function reconcileUserTeamAndCommissions(
   const processTierUsers = (tierUsers: UserState[], level: 1 | 2 | 3, pct: number) => {
     for (const memberUser of tierUsers) {
       const mDigits = cleanNigerianPhoneDigits(memberUser.phone);
+      if (!mDigits || mDigits === userDigits) {
+        continue; // Strictly skip self or invalid downline
+      }
+
       const existingMember = (user.teamMembers || []).find(
         (tm) =>
           tm.level === level &&
@@ -914,9 +918,7 @@ export async function reconcileUserTeamAndCommissions(
       // Match all commission records that reference this downline member
       const isRecordFromBuyer = (r: TransactionRecord) => {
         if (r.type !== 'commission') return false;
-        const dClean = cleanNigerianPhoneDigits(r.details || '');
-        const idClean = cleanNigerianPhoneDigits(r.id || '');
-        if (mDigits && (dClean.includes(mDigits) || idClean.includes(mDigits))) return true;
+        if (mDigits && (r.details?.includes(mDigits) || r.id?.includes(mDigits))) return true;
         if (memberUser.phone && (r.details?.includes(memberUser.phone) || r.id?.includes(memberUser.phone))) return true;
         if (memberUser.inviteCode && (r.details?.includes(memberUser.inviteCode) || r.id?.includes(memberUser.inviteCode))) return true;
         return false;
@@ -978,7 +980,7 @@ export async function reconcileUserTeamAndCommissions(
     balance: (user.balance || 0) + additionalCommissionToCredit,
     cumulativeIncome: (user.cumulativeIncome || 0) + additionalCommissionToCredit,
     teamMembers: mergedTeam,
-    records: [...newCommissionRecords, ...existingRecords],
+    records: mergeTransactionRecords(newCommissionRecords, existingRecords),
   };
 
   await persistUserUpdates(user.phone, () => updatedUser);
